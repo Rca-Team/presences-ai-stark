@@ -1282,6 +1282,38 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
         </Button>
       </div>
 
+      {autoMarkedLog.length > 0 && (
+        <div className="mt-5 rounded-2xl border border-success/25 bg-success/5 p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-success" />
+              Auto-marked this session ({autoMarkedLog.length})
+            </p>
+            <Badge variant="secondary" className="bg-secondary text-secondary-foreground border-border/70">
+              Background
+            </Badge>
+          </div>
+          <div className="space-y-1.5">
+            {autoMarkedLog.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-2 text-xs sm:text-sm">
+                <span className="truncate text-foreground">{entry.name}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <Badge
+                    variant="outline"
+                    className={entry.status === 'late' ? 'border-warning/50 text-warning' : 'border-success/50 text-success'}
+                  >
+                    {entry.status}
+                  </Badge>
+                  <span className="text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+
+
       {pendingManualReviews.length > 0 && (
         <div className="mt-5 space-y-3 rounded-2xl border border-primary/25 bg-primary/10 p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2">
