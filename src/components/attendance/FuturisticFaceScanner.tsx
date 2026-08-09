@@ -18,6 +18,9 @@ import { scanTelemetry } from '@/services/face-recognition/ScanTelemetry';
 
 import { saveEmotionEvent } from '@/services/ai/EmotionAnalysisService';
 import { sendAutoParentNotification } from '@/services/notification/AutoNotificationService';
+import { storeFaceSample } from '@/services/face-recognition/ProgressiveTrainingService';
+import { supabase } from '@/integrations/supabase/client';
+
 import { getCutoffTime, isPastCutoffTime, getAttendanceCutoffTime } from '@/services/attendance/AttendanceSettingsService';
 import * as faceapi from 'face-api.js';
 import { createRecognitionEngine } from '@/services/face-recognition/RealtimeRecognitionEngine';
@@ -73,6 +76,9 @@ const EMBEDDING_DEDUPE_THRESHOLD = 0.46;
 const FACE_CROP_PADDING_PERCENT = 0;
 /** Same person is not re-marked by the live scanner within this window. */
 const AUTO_MARK_COOLDOWN_MS = 5 * 60 * 1000;
+/** Minimum sharpness (gradient energy) for a crop to be kept as a training sample. */
+const AUTO_SAMPLE_MIN_SHARPNESS = 9;
+
 
 interface AutoMarkedEntry {
   id: string;
@@ -80,7 +86,11 @@ interface AutoMarkedEntry {
   status: 'present' | 'late';
   confidence: number;
   at: number;
+  emailed?: boolean;
+  notified?: boolean;
+  sampleSaved?: boolean;
 }
+
 
 
 const descriptorDistance = (a: Float32Array, b: Float32Array) => {
@@ -147,6 +157,62 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
+
+  const patchAutoMarked = useCallback((entryId: string, patch: Partial<AutoMarkedEntry>) => {
+    setAutoMarkedLog((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e)));
+  }, []);
+
+  /**
+   * Background follow-ups for an auto-marked student:
+   *  1. Parent email (Resend) + SMS/push via the notification pipeline
+   *  2. In-app notification row (fallback insert if the pipeline is unreachable)
+   *  3. A fresh face sample stored for future recognition — only when the crop
+   *     is high quality, so the gallery keeps the newest & sharpest views.
+   */
+  const runAutoFollowUps = useCallback(
+    async (job: {
+      entryId: string;
+      userId: string;
+      name: string;
+      status: 'present' | 'late';
+      confidence: number;
+      descriptor?: Float32Array;
+      crop: { dataUrl: string; blurScore: number } | null;
+    }) => {
+      // 1 + 2 — notifications (email via Resend, push, SMS, in-app row)
+      try {
+        const result = await sendAutoParentNotification(job.userId, job.name, job.status, job.crop?.dataUrl);
+        patchAutoMarked(job.entryId, { emailed: !!result?.success, notified: true });
+        if (!result?.success) {
+          await supabase.from('notifications').insert({
+            user_id: job.userId,
+            title: `Attendance marked ${job.status}`,
+            message: `${job.name} was marked ${job.status} by live Face ID at ${new Date().toLocaleTimeString()}.`,
+            type: job.status === 'late' ? 'warning' : 'success',
+            metadata: { source: 'live-face-id', confidence: job.confidence },
+          });
+        }
+      } catch (err) {
+        console.warn('Auto notification follow-up failed:', err);
+      }
+
+      // 3 — high-quality face sample for progressive training
+      try {
+        const isHighQuality =
+          job.confidence >= 0.8 && !!job.crop && job.crop.blurScore >= AUTO_SAMPLE_MIN_SHARPNESS;
+        if (job.descriptor && isHighQuality && job.crop) {
+          const blob = await (await fetch(job.crop.dataUrl)).blob();
+          const stored = await storeFaceSample(job.userId, job.descriptor, blob, job.name, job.confidence);
+          patchAutoMarked(job.entryId, { sampleSaved: stored });
+        }
+      } catch (err) {
+        console.warn('Auto face-sample capture failed:', err);
+      }
+    },
+    [patchAutoMarked]
+  );
+
+
 
   useEffect(() => {
     const initModels = async () => {
@@ -290,13 +356,28 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
             return;
           }
 
+          const entryId = `${face.userId}-${Date.now()}`;
           setAutoMarkedLog((prev) => {
             const next = [
-              { id: `${face.userId}-${Date.now()}`, name: face.name, status, confidence: face.confidence, at: Date.now() },
+              { id: entryId, name: face.name, status, confidence: face.confidence, at: Date.now() },
               ...prev.filter((e) => e.name !== face.name),
             ];
             return next.slice(0, 8);
           });
+
+          // Background follow-ups: parent email (Resend), in-app notification and
+          // a fresh high-quality face sample for future recognition. Never awaited
+          // on the recognition path, so the camera loop stays perfectly smooth.
+          void runAutoFollowUps({
+            entryId,
+            userId: face.userId,
+            name: face.name,
+            status,
+            confidence: face.confidence,
+            descriptor: face.descriptor,
+            crop,
+          });
+
 
           setRecognizedFaces((prev) => [
             ...prev.filter((f) => f.id !== face.userId),
@@ -1297,16 +1378,32 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
             {autoMarkedLog.map((entry) => (
               <div key={entry.id} className="flex items-center justify-between gap-2 text-xs sm:text-sm">
                 <span className="truncate text-foreground">{entry.name}</span>
-                <span className="flex items-center gap-2 shrink-0">
+                <span className="flex items-center gap-1.5 shrink-0">
                   <Badge
                     variant="outline"
                     className={entry.status === 'late' ? 'border-warning/50 text-warning' : 'border-success/50 text-success'}
                   >
                     {entry.status}
                   </Badge>
+                  {entry.emailed && (
+                    <Badge variant="outline" className="border-primary/40 text-primary" title="Parent email sent">
+                      mail
+                    </Badge>
+                  )}
+                  {entry.notified && (
+                    <Badge variant="outline" className="border-border text-muted-foreground" title="In-app notification sent">
+                      notified
+                    </Badge>
+                  )}
+                  {entry.sampleSaved && (
+                    <Badge variant="outline" className="border-success/40 text-success" title="New face sample stored for future recognition">
+                      sample
+                    </Badge>
+                  )}
                   <span className="text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
                 </span>
               </div>
+
             ))}
           </div>
         </div>
