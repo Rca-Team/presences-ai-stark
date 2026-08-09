@@ -71,6 +71,17 @@ interface PendingManualReview {
 
 const EMBEDDING_DEDUPE_THRESHOLD = 0.46;
 const FACE_CROP_PADDING_PERCENT = 0;
+/** Same person is not re-marked by the live scanner within this window. */
+const AUTO_MARK_COOLDOWN_MS = 5 * 60 * 1000;
+
+interface AutoMarkedEntry {
+  id: string;
+  name: string;
+  status: 'present' | 'late';
+  confidence: number;
+  at: number;
+}
+
 
 const descriptorDistance = (a: Float32Array, b: Float32Array) => {
   let sum = 0;
@@ -96,6 +107,10 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
   const processingFaceKeysRef = useRef<Set<string>>(new Set());
   const hasCompletedFirstRecognitionRef = useRef(false);
   const processedEmbeddingsRef = useRef<Array<{ descriptor: Float32Array; employeeId?: string; ts: number }>>([]);
+  const autoMarkedUsersRef = useRef<Map<string, number>>(new Map());
+  const [autoMarkedLog, setAutoMarkedLog] = useState<AutoMarkedEntry[]>([]);
+  
+
   
   const [modelsLoaded, setModelsLoaded] = useState(areModelsLoaded());
   const [isScanning, setIsScanning] = useState(false);
@@ -225,6 +240,90 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
         setDetectedFaces(tracks.map(t => ({ box: { ...t.box } })));
         setFaceCount(tracks.length);
         drawTracks(tracks);
+      },
+      // Runs once per newly identified person — UI only, never blocks detection.
+      onIdentified: (face) => {
+        scanTelemetry.matched({
+          name: face.name,
+          confidence: face.confidence,
+          meta: 'Recognized · marking…',
+          counted: false,
+        });
+      },
+      // Thread 4: attendance persistence off the recognition path (background
+      // write queue with de-duplication, so the camera never stalls).
+      markAttendance: async (face) => {
+        const alreadyMarkedAt = autoMarkedUsersRef.current.get(face.userId) || 0;
+        if (Date.now() - alreadyMarkedAt < AUTO_MARK_COOLDOWN_MS) return;
+        autoMarkedUsersRef.current.set(face.userId, Date.now());
+
+        try {
+          const video = webcamRef.current?.video;
+          const crop = video ? captureFaceArea(video, face.box) : null;
+
+          const cutoffTime = await getAttendanceCutoffTime();
+          const status: 'present' | 'late' = isPastCutoffTime(cutoffTime) ? 'late' : 'present';
+
+          const outcome = await recordAttendance(
+            face.userId,
+            status,
+            face.confidence,
+            {
+              metadata: {
+                name: face.name,
+                source: 'live-face-id',
+                track_id: face.trackId,
+                distance: Number(face.distance.toFixed(4)),
+              },
+            },
+            crop?.dataUrl
+          );
+
+          if (outcome?.skipped) {
+            autoMarkedUsersRef.current.delete(face.userId);
+            scanTelemetry.matched({
+              name: face.name,
+              confidence: face.confidence,
+              meta: 'Needs a clearer look',
+              counted: false,
+            });
+            return;
+          }
+
+          setAutoMarkedLog((prev) => {
+            const next = [
+              { id: `${face.userId}-${Date.now()}`, name: face.name, status, confidence: face.confidence, at: Date.now() },
+              ...prev.filter((e) => e.name !== face.name),
+            ];
+            return next.slice(0, 8);
+          });
+
+          setRecognizedFaces((prev) => [
+            ...prev.filter((f) => f.id !== face.userId),
+            {
+              id: face.userId,
+              name: face.name,
+              status,
+              confidence: face.confidence,
+              box: { ...face.box },
+            },
+          ].slice(-6));
+
+          scanTelemetry.matched({
+            name: face.name,
+            confidence: face.confidence,
+            meta: `Marked ${status}`,
+          });
+
+          toast({
+            title: `${face.name} marked ${status}`,
+            description: `Auto attendance · ${Math.round(face.confidence * 100)}% match`,
+          });
+        } catch (err) {
+          // Allow a retry on the next appearance if the write failed
+          autoMarkedUsersRef.current.delete(face.userId);
+          console.warn('Auto attendance mark failed:', err);
+        }
       },
     });
 
@@ -1182,6 +1281,38 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
           )}
         </Button>
       </div>
+
+      {autoMarkedLog.length > 0 && (
+        <div className="mt-5 rounded-2xl border border-success/25 bg-success/5 p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-success" />
+              Auto-marked this session ({autoMarkedLog.length})
+            </p>
+            <Badge variant="secondary" className="bg-secondary text-secondary-foreground border-border/70">
+              Background
+            </Badge>
+          </div>
+          <div className="space-y-1.5">
+            {autoMarkedLog.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-2 text-xs sm:text-sm">
+                <span className="truncate text-foreground">{entry.name}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <Badge
+                    variant="outline"
+                    className={entry.status === 'late' ? 'border-warning/50 text-warning' : 'border-success/50 text-success'}
+                  >
+                    {entry.status}
+                  </Badge>
+                  <span className="text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+
 
       {pendingManualReviews.length > 0 && (
         <div className="mt-5 space-y-3 rounded-2xl border border-primary/25 bg-primary/10 p-3 sm:p-4">
