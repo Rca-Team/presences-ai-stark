@@ -317,6 +317,139 @@ const ClassSectionReport: React.FC<ClassSectionReportProps> = ({ allowedCategori
     }
   };
 
+  // ── Traditional printable register (dates horizontal, names vertical) ─────
+  const printRegister = async () => {
+    if (!guardCategory()) return;
+    setBusy('print');
+    try {
+      const r = await buildReport();
+      if (!r) return;
+
+      const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.setTextColor(15, 23, 42);
+      doc.text('ATTENDANCE REGISTER', pageWidth / 2, 34, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(
+        `${getCategoryLabel(selectedCategory)}   |   ${fmt(r.startDate)} - ${fmt(r.endDate)}   |   Working days: ${r.totalWorkDays}`,
+        pageWidth / 2,
+        52,
+        { align: 'center' },
+      );
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('P = Present    L = Late    A = Absent', pageWidth / 2, 66, { align: 'center' });
+
+      const dayLabel = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+      // Split days into chunks so every column stays readable on A4 landscape.
+      const CHUNK = 20;
+      const chunks: Date[][] = [];
+      for (let i = 0; i < r.workingDays.length; i += CHUNK) {
+        chunks.push(r.workingDays.slice(i, i + CHUNK));
+      }
+      if (chunks.length === 0) chunks.push([]);
+
+      let cursorY = 84;
+      chunks.forEach((days, chunkIndex) => {
+        const head = [['#', 'Student Name', ...days.map(dayLabel), 'P', 'L', 'A']];
+        const body = r.students.map((s, i) => [
+          i + 1,
+          s.name,
+          ...days.map((d) => s.days[d.toDateString()] || 'A'),
+          s.present,
+          s.late,
+          s.absent,
+        ]);
+
+        const dayCols: Record<number, any> = {};
+        days.forEach((_, i) => {
+          dayCols[i + 2] = { halign: 'center', cellWidth: 22 };
+        });
+
+        autoTable(doc, {
+          startY: chunkIndex === 0 ? cursorY : 40,
+          head,
+          body,
+          theme: 'grid',
+          styles: { fontSize: 7.5, cellPadding: 3, lineColor: [148, 163, 184], lineWidth: 0.4, textColor: [15, 23, 42] },
+          headStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'center', fontSize: 7 },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 22 },
+            1: { cellWidth: 130, fontStyle: 'bold' },
+            ...dayCols,
+            [days.length + 2]: { halign: 'center', cellWidth: 24, fontStyle: 'bold' },
+            [days.length + 3]: { halign: 'center', cellWidth: 24 },
+            [days.length + 4]: { halign: 'center', cellWidth: 24 },
+          },
+          margin: { left: 24, right: 24, top: 40 },
+          didParseCell: (data: any) => {
+            if (data.section !== 'body') return;
+            const raw = String(data.cell.raw ?? '');
+            if (data.column.index >= 2 && data.column.index < days.length + 2) {
+              if (raw === 'A') data.cell.styles.textColor = [190, 18, 60];
+              else if (raw === 'L') data.cell.styles.textColor = [180, 83, 9];
+              else data.cell.styles.textColor = [21, 128, 61];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          },
+          didDrawPage: () => {
+            doc.setFontSize(7.5);
+            doc.setTextColor(148, 163, 184);
+            doc.text(
+              `Presence System · ${getCategoryLabel(selectedCategory)} · Signature of Class Teacher: ______________`,
+              pageWidth / 2,
+              doc.internal.pageSize.getHeight() - 16,
+              { align: 'center' },
+            );
+          },
+        });
+
+        if (chunkIndex < chunks.length - 1) doc.addPage('a4', 'landscape');
+      });
+
+      // Summary footer table
+      doc.addPage('a4', 'landscape');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('SUMMARY', pageWidth / 2, 36, { align: 'center' });
+      autoTable(doc, {
+        startY: 52,
+        theme: 'grid',
+        head: [['#', 'Student Name', 'ID', 'Present', 'Late', 'Absent', 'Rate %']],
+        body: r.students.map((s, i) => [
+          i + 1,
+          s.name,
+          s.employeeId,
+          s.present,
+          s.late,
+          s.absent,
+          r.totalWorkDays ? (((s.present + s.late) / r.totalWorkDays) * 100).toFixed(1) : '0.0',
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 4, lineColor: [148, 163, 184], lineWidth: 0.4 },
+        headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: 'bold' },
+        margin: { left: 24, right: 24 },
+      });
+
+      const blobUrl = doc.output('bloburl');
+      const printWindow = window.open(blobUrl as unknown as string, '_blank');
+      if (!printWindow) {
+        doc.save(`${safeName()}_register_${new Date().toISOString().slice(0, 10)}.pdf`);
+      }
+      toast({ title: 'Register ready', description: `${r.students.length} students × ${r.totalWorkDays} days.` });
+    } catch (e) {
+      console.error(e);
+      toast({ title: 'Print failed', description: 'Could not generate the register.', variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Card className="bg-card border-border shadow-lg">
       <CardHeader className="pb-4 border-b border-border bg-gradient-to-r from-indigo-600 to-violet-600">
@@ -372,9 +505,22 @@ const ClassSectionReport: React.FC<ClassSectionReportProps> = ({ allowedCategori
           </Button>
         </div>
 
+        <Button
+          onClick={printRegister}
+          disabled={!!busy || !selectedCategory}
+          variant="secondary"
+          className="w-full"
+        >
+          {busy === 'print' ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building register…</>
+          ) : (
+            <><Printer className="w-4 h-4 mr-2" /> Print Register (P / A grid)</>
+          )}
+        </Button>
+
         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
           <Printer className="w-3 h-3" />
-          PDF includes header, summary stats, and per-student breakdown. CSV opens in Excel/Sheets.
+          Register prints dates across the top and student names down the side with P / L / A per day, plus a summary page. CSV opens in Excel/Sheets.
         </p>
       </CardContent>
     </Card>
