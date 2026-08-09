@@ -294,13 +294,28 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
             return;
           }
 
+          const entryId = `${face.userId}-${Date.now()}`;
           setAutoMarkedLog((prev) => {
             const next = [
-              { id: `${face.userId}-${Date.now()}`, name: face.name, status, confidence: face.confidence, at: Date.now() },
+              { id: entryId, name: face.name, status, confidence: face.confidence, at: Date.now() },
               ...prev.filter((e) => e.name !== face.name),
             ];
             return next.slice(0, 8);
           });
+
+          // Background follow-ups: parent email (Resend), in-app notification and
+          // a fresh high-quality face sample for future recognition. Never awaited
+          // on the recognition path, so the camera loop stays perfectly smooth.
+          void runAutoFollowUps({
+            entryId,
+            userId: face.userId,
+            name: face.name,
+            status,
+            confidence: face.confidence,
+            descriptor: face.descriptor,
+            crop,
+          });
+
 
           setRecognizedFaces((prev) => [
             ...prev.filter((f) => f.id !== face.userId),
