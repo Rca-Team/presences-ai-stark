@@ -1378,16 +1378,32 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
             {autoMarkedLog.map((entry) => (
               <div key={entry.id} className="flex items-center justify-between gap-2 text-xs sm:text-sm">
                 <span className="truncate text-foreground">{entry.name}</span>
-                <span className="flex items-center gap-2 shrink-0">
+                <span className="flex items-center gap-1.5 shrink-0">
                   <Badge
                     variant="outline"
                     className={entry.status === 'late' ? 'border-warning/50 text-warning' : 'border-success/50 text-success'}
                   >
                     {entry.status}
                   </Badge>
+                  {entry.emailed && (
+                    <Badge variant="outline" className="border-primary/40 text-primary" title="Parent email sent">
+                      mail
+                    </Badge>
+                  )}
+                  {entry.notified && (
+                    <Badge variant="outline" className="border-border text-muted-foreground" title="In-app notification sent">
+                      notified
+                    </Badge>
+                  )}
+                  {entry.sampleSaved && (
+                    <Badge variant="outline" className="border-success/40 text-success" title="New face sample stored for future recognition">
+                      sample
+                    </Badge>
+                  )}
                   <span className="text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
                 </span>
               </div>
+
             ))}
           </div>
         </div>
