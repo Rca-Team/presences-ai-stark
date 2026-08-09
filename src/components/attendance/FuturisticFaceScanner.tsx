@@ -226,6 +226,90 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
         setFaceCount(tracks.length);
         drawTracks(tracks);
       },
+      // Runs once per newly identified person — UI only, never blocks detection.
+      onIdentified: (face) => {
+        scanTelemetry.matched({
+          name: face.name,
+          confidence: face.confidence,
+          meta: 'Recognized · marking…',
+          counted: false,
+        });
+      },
+      // Thread 4: attendance persistence off the recognition path (background
+      // write queue with de-duplication, so the camera never stalls).
+      markAttendance: async (face) => {
+        const alreadyMarkedAt = autoMarkedUsersRef.current.get(face.userId) || 0;
+        if (Date.now() - alreadyMarkedAt < AUTO_MARK_COOLDOWN_MS) return;
+        autoMarkedUsersRef.current.set(face.userId, Date.now());
+
+        try {
+          const video = webcamRef.current?.video;
+          const crop = video ? captureFaceArea(video, face.box) : null;
+
+          const cutoffTime = await getAttendanceCutoffTime();
+          const status: 'present' | 'late' = isPastCutoffTime(cutoffTime) ? 'late' : 'present';
+
+          const outcome = await recordAttendance(
+            face.userId,
+            status,
+            face.confidence,
+            {
+              metadata: {
+                name: face.name,
+                source: 'live-face-id',
+                track_id: face.trackId,
+                distance: Number(face.distance.toFixed(4)),
+              },
+            },
+            crop?.dataUrl
+          );
+
+          if (outcome?.skipped) {
+            autoMarkedUsersRef.current.delete(face.userId);
+            scanTelemetry.matched({
+              name: face.name,
+              confidence: face.confidence,
+              meta: 'Needs a clearer look',
+              counted: false,
+            });
+            return;
+          }
+
+          setAutoMarkedLog((prev) => {
+            const next = [
+              { id: `${face.userId}-${Date.now()}`, name: face.name, status, confidence: face.confidence, at: Date.now() },
+              ...prev.filter((e) => e.name !== face.name),
+            ];
+            return next.slice(0, 8);
+          });
+
+          setRecognizedFaces((prev) => [
+            ...prev.filter((f) => f.id !== face.userId),
+            {
+              id: face.userId,
+              name: face.name,
+              status,
+              confidence: face.confidence,
+              box: { ...face.box },
+            },
+          ].slice(-6));
+
+          scanTelemetry.matched({
+            name: face.name,
+            confidence: face.confidence,
+            meta: `Marked ${status}`,
+          });
+
+          toast({
+            title: `${face.name} marked ${status}`,
+            description: `Auto attendance · ${Math.round(face.confidence * 100)}% match`,
+          });
+        } catch (err) {
+          // Allow a retry on the next appearance if the write failed
+          autoMarkedUsersRef.current.delete(face.userId);
+          console.warn('Auto attendance mark failed:', err);
+        }
+      },
     });
 
     engineRef.current = engine;
