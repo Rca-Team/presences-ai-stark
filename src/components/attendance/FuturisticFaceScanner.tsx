@@ -107,6 +107,10 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
   const processingFaceKeysRef = useRef<Set<string>>(new Set());
   const hasCompletedFirstRecognitionRef = useRef(false);
   const processedEmbeddingsRef = useRef<Array<{ descriptor: Float32Array; employeeId?: string; ts: number }>>([]);
+  const autoMarkedUsersRef = useRef<Map<string, number>>(new Map());
+  const [autoMarkedLog, setAutoMarkedLog] = useState<AutoMarkedEntry[]>([]);
+  
+
   
   const [modelsLoaded, setModelsLoaded] = useState(areModelsLoaded());
   const [isScanning, setIsScanning] = useState(false);
