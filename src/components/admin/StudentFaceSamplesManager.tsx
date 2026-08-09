@@ -368,8 +368,14 @@ const StudentFaceSamplesManager: React.FC = () => {
   const isUuid = (value: string | null | undefined) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
 
-  const fetchSamples = async () => {
-    setLoading(true);
+  const hasLoadedRef = React.useRef(false);
+  const refreshTimerRef = React.useRef<number | null>(null);
+  const inFlightRef = React.useRef(false);
+
+  const fetchSamples = async (options: { silent?: boolean } = {}) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!options.silent && !hasLoadedRef.current) setLoading(true);
     try {
       const [samplesRes, allAttRes, profileRes] = await Promise.all([
         supabase
@@ -383,7 +389,7 @@ const StudentFaceSamplesManager: React.FC = () => {
           .order('timestamp', { ascending: false }),
         supabase
           .from('profiles')
-          .select('user_id, display_name')
+          .select('user_id, display_name, full_name, employee_id, roll_number, admission_number')
           .not('user_id', 'is', null),
       ]);
 
@@ -391,63 +397,126 @@ const StudentFaceSamplesManager: React.FC = () => {
       if (allAttRes.error) throw allAttRes.error;
       if (profileRes.error) throw profileRes.error;
 
+      const normKey = (v: unknown) => (v == null ? '' : String(v).trim().toLowerCase());
+      const normName = (v: unknown) =>
+        (v == null ? '' : String(v)).trim().toLowerCase().replace(/\s+/g, ' ');
+
       const profileMap = new Map<string, string>();
       (profileRes.data || []).forEach((p: any) => {
-        if (p?.user_id && p?.display_name) profileMap.set(p.user_id, p.display_name);
+        const name = p?.display_name || p?.full_name;
+        if (p?.user_id && name) profileMap.set(p.user_id, name);
       });
 
-      const employeeToUserId = new Map<string, string>();
-      (allAttRes.data || []).forEach((r: any) => {
-        const di = r.device_info || {};
-        const m = di.metadata || {};
-        const empKey = (m.employee_id || m.roll_number || di.employee_id || r.student_id || '').toString().trim();
-        if (r.user_id && empKey) employeeToUserId.set(empKey, r.user_id);
-      });
-
-      // Build the student directory using the SAME logic as StudentDetailsTable so
-      // every registered student (22) appears here even if their attendance rows
-      // have a null user_id. The "key" is the stable identity used for grouping.
+      // ── Canonical identity registry ───────────────────────────────────────
+      // A student may show up as: an attendance row (with/without user_id),
+      // a descriptor row (with/without user_id) and a profile row. All of those
+      // must collapse into ONE group, otherwise the list shows duplicates.
       const grouped = new Map<string, StudentGroup>();
-      const userIdToKey = new Map<string, string>(); // map auth user_id → group key
-      const employeeToKey = new Map<string, string>();
+      const byUserId = new Map<string, string>();
+      const byEmployee = new Map<string, string>();
+      const byName = new Map<string, string>();
 
-      const keyForRecord = (r: any): string | null => {
-        const di = r.device_info || {};
-        const m = di.metadata || {};
-        const empId = (m.employee_id || m.roll_number || di.employee_id || r.student_id || '').toString().trim();
-        const canonicalUserId = r.user_id || (empId ? employeeToUserId.get(empId) : null);
-        // Prefer student/employee identity first so shared user_id cannot collapse students
-        return (empId || canonicalUserId || r.id) as string | null;
-      };
+      const resolveGroup = (aliases: {
+        userId?: string | null;
+        employeeId?: string | null;
+        name?: string | null;
+        fallbackId: string;
+      }): StudentGroup => {
+        const uid = normKey(aliases.userId);
+        const emp = normKey(aliases.employeeId);
+        const nameKey = normName(aliases.name);
 
-      (allAttRes.data || []).forEach((r: any) => {
-        const di = r.device_info || {};
-        const m = di.metadata || {};
-        const name = m.name || di.name || r.student_name || (r.user_id ? profileMap.get(r.user_id) : '') || '';
-        if (!name || name === 'Unknown' || name === 'User') return;
-        const key = keyForRecord(r);
-        if (!key) return;
-        if (!grouped.has(key)) {
+        let key =
+          (uid && byUserId.get(uid)) ||
+          (emp && byEmployee.get(emp)) ||
+          (nameKey && byName.get(nameKey)) ||
+          undefined;
+
+        if (!key) {
+          key = uid || emp || aliases.fallbackId;
           grouped.set(key, {
-            userId: r.user_id || key,
-            name,
-            employeeId: m.employee_id || m.roll_number || di.employee_id || r.student_id || key,
+            userId: aliases.userId || key,
+            name: (aliases.name || '').toString().trim() || aliases.employeeId || 'Student',
+            employeeId: (aliases.employeeId || '').toString().trim() || key,
             samples: [],
           });
-          if (r.user_id) userIdToKey.set(r.user_id, key);
-          const empId = m.employee_id || m.roll_number || di.employee_id || r.student_id;
-          if (empId) employeeToKey.set(empId, key);
-        } else if (r.user_id && !userIdToKey.has(r.user_id)) {
-          userIdToKey.set(r.user_id, key);
+        } else {
+          const group = grouped.get(key)!;
+          // enrich blanks so the merged row is the most complete one
+          if (!group.userId || group.userId === key) group.userId = aliases.userId || group.userId;
+          if ((!group.name || group.name === 'Student') && aliases.name) group.name = aliases.name;
+          if ((!group.employeeId || group.employeeId === key) && aliases.employeeId) {
+            group.employeeId = aliases.employeeId;
+          }
         }
+
+        if (uid) byUserId.set(uid, key);
+        if (emp) byEmployee.set(emp, key);
+        if (nameKey) byName.set(nameKey, key);
+        return grouped.get(key)!;
+      };
+
+      // 1) Registered students first — they define the canonical directory.
+      const attendanceRows = allAttRes.data || [];
+      const registeredRows = attendanceRows.filter(
+        (r: any) => r.status === 'registered' || r.status === 'pending_approval'
+      );
+
+      const identityOf = (r: any) => {
+        const di = r.device_info || {};
+        const m = di.metadata || {};
+        return {
+          name: m.name || di.name || r.student_name || (r.user_id ? profileMap.get(r.user_id) : '') || '',
+          employeeId: m.employee_id || m.roll_number || di.employee_id || r.student_id || '',
+        };
+      };
+
+      registeredRows.forEach((r: any) => {
+        const { name, employeeId } = identityOf(r);
+        if (!name || name === 'Unknown' || name === 'User') return;
+        resolveGroup({ userId: r.user_id, employeeId, name, fallbackId: r.id });
       });
 
-      // Push attendance-based samples (register / recognition / gate)
-      (allAttRes.data || []).forEach((r: any) => {
+      // 2) Descriptor rows — attach to existing students, create only when new.
+      (samplesRes.data || []).forEach((raw: any) => {
+        const uid = (raw.user_id || '').toString().trim();
+        const label = (raw.label || '').toString().trim();
+        const name = label || (uid ? profileMap.get(uid) : '') || '';
+        if (!name && !uid) return;
+        const group = resolveGroup({
+          userId: uid || null,
+          employeeId: (raw.student_id || '').toString().trim() || null,
+          name: name || null,
+          fallbackId: raw.id,
+        });
+        group.samples.push({
+          id: raw.id,
+          user_id: uid || group.userId,
+          label: raw.label,
+          image_url: raw.image_url,
+          created_at: raw.created_at,
+          source: 'descriptor_registration',
+          source_table: 'face_descriptors',
+          confidence_score: 1,
+          status: 'registered',
+        });
+      });
+
+      // 3) Captured photos from attendance / gate recognition.
+      attendanceRows.forEach((r: any) => {
         if (!r.image_url) return;
-        const key = keyForRecord(r);
-        if (!key || !grouped.has(key)) return;
         const di = r.device_info || {};
+        const { name, employeeId } = identityOf(r);
+        if (!name || name === 'Unknown' || name === 'User') return;
+
+        const uid = normKey(r.user_id);
+        const emp = normKey(employeeId);
+        const nameKey = normName(name);
+        const key =
+          (uid && byUserId.get(uid)) || (emp && byEmployee.get(emp)) || (nameKey && byName.get(nameKey));
+        if (!key) return; // never create a new student from a recognition photo
+        const group = grouped.get(key)!;
+
         const fromGate = Boolean(di.gate);
         let source: FaceSample['source'];
         if (r.status === 'registered' || r.status === 'pending_approval') {
@@ -457,9 +526,10 @@ const StudentFaceSamplesManager: React.FC = () => {
         } else {
           return;
         }
-        grouped.get(key)!.samples.push({
+
+        group.samples.push({
           id: r.id,
-          user_id: r.user_id || key,
+          user_id: r.user_id || group.userId,
           label: di.metadata?.name || null,
           image_url: r.image_url,
           created_at: r.timestamp,
@@ -467,37 +537,6 @@ const StudentFaceSamplesManager: React.FC = () => {
           source_table: 'attendance_records',
           confidence_score: r.confidence_score ?? null,
           status: r.status,
-        });
-      });
-
-      // Push trained-slot descriptors. Keep existing attendance-linked students,
-      // and also include descriptor-only students so all registered faces appear.
-      (samplesRes.data || []).forEach((raw: any) => {
-        const uid = (raw.user_id || '').toString().trim();
-        const studentId = (raw.student_id || '').toString().trim();
-        const label = (raw.label || '').toString().trim();
-        let key = uid ? userIdToKey.get(uid) : undefined;
-        if (!key) key = uid || studentId || raw.id;
-        if (!grouped.has(key)) {
-          const profileName = uid ? profileMap.get(uid) : '';
-          grouped.set(key, {
-            userId: uid || key,
-            name: label || profileName || studentId || 'Student',
-            employeeId: studentId || key,
-            samples: [],
-          });
-          if (uid) userIdToKey.set(uid, key);
-        }
-        grouped.get(key)!.samples.push({
-          id: raw.id,
-          user_id: uid || key,
-          label: raw.label,
-          image_url: raw.image_url,
-          created_at: raw.created_at,
-          source: 'descriptor_registration',
-          source_table: 'face_descriptors',
-          confidence_score: 1,
-          status: 'registered',
         });
       });
 
@@ -519,16 +558,30 @@ const StudentFaceSamplesManager: React.FC = () => {
       );
 
       setGroups(hydratedGroups);
-      if (!selectedUserId && hydratedGroups.length > 0) {
-        setSelectedUserId(hydratedGroups[0].userId);
-      }
+      hasLoadedRef.current = true;
+      setSelectedUserId((current) => {
+        if (current && hydratedGroups.some((g) => g.userId === current)) return current;
+        return hydratedGroups[0]?.userId || '';
+      });
     } catch (error) {
       console.error('Failed to fetch face samples:', error);
-      toast({ title: 'Error', description: 'Could not load student face samples.', variant: 'destructive' });
+      if (!hasLoadedRef.current) {
+        toast({ title: 'Error', description: 'Could not load student face samples.', variant: 'destructive' });
+      }
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
+
+  /** Coalesced, non-blocking refresh — keeps the list on screen while updating. */
+  const scheduleRefresh = React.useCallback(() => {
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      fetchSamples({ silent: true });
+    }, 1200);
+  }, []);
 
   useEffect(() => {
     fetchSamples();
@@ -550,23 +603,21 @@ const StudentFaceSamplesManager: React.FC = () => {
           } else {
             await syncDescriptorCache();
           }
-          toast({ title: 'Model synced', description: `Added ${r.label || 'new descriptor'} to live model.` });
         } catch (err) {
           console.warn('Incremental cache add failed, doing full resync:', err);
           syncDescriptorCache().catch(() => {});
         }
-        fetchSamples();
+        scheduleRefresh();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'face_descriptors' }, async (payload: any) => {
         const r = payload.old || {};
         try {
           if (r.id) await removeFromCache(r.id);
-          toast({ title: 'Model synced', description: `Removed ${r.label || 'descriptor'} from live model.` });
         } catch (err) {
           console.warn('Incremental cache delete failed, doing full resync:', err);
           syncDescriptorCache().catch(() => {});
         }
-        fetchSamples();
+        scheduleRefresh();
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'face_descriptors' }, async (payload: any) => {
         const r = payload.new || {};
@@ -582,19 +633,19 @@ const StudentFaceSamplesManager: React.FC = () => {
               lastUsed: Date.now(),
             });
           }
-          toast({ title: 'Model synced', description: 'Live model updated.' });
         } catch (err) {
           syncDescriptorCache().catch(() => {});
         }
-        fetchSamples();
+        scheduleRefresh();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records' }, () => fetchSamples())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchSamples())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records' }, () => scheduleRefresh())
       .subscribe();
     return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [scheduleRefresh]);
+
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
