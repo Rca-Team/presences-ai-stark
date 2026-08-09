@@ -1786,7 +1786,7 @@ const StudentFaceSamplesManager: React.FC = () => {
               <option value="slots">Show: Trained Slots only</option>
               <option value="captured">Show: Captured Samples only</option>
             </select>
-            <Button variant="outline" size="sm" onClick={fetchSamples}>
+            <Button variant="outline" size="sm" onClick={() => fetchSamples({ silent: true })}>
               <RefreshCw className="w-4 h-4 mr-1" /> Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={handleExportAllStudentsZip} disabled={exportingZip || loading || groups.length === 0}>
