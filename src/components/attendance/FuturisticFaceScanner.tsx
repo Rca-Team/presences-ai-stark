@@ -71,6 +71,17 @@ interface PendingManualReview {
 
 const EMBEDDING_DEDUPE_THRESHOLD = 0.46;
 const FACE_CROP_PADDING_PERCENT = 0;
+/** Same person is not re-marked by the live scanner within this window. */
+const AUTO_MARK_COOLDOWN_MS = 5 * 60 * 1000;
+
+interface AutoMarkedEntry {
+  id: string;
+  name: string;
+  status: 'present' | 'late';
+  confidence: number;
+  at: number;
+}
+
 
 const descriptorDistance = (a: Float32Array, b: Float32Array) => {
   let sum = 0;
