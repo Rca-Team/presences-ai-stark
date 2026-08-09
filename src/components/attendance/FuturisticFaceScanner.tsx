@@ -152,6 +152,62 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
+  const patchAutoMarked = useCallback((entryId: string, patch: Partial<AutoMarkedEntry>) => {
+    setAutoMarkedLog((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e)));
+  }, []);
+
+  /**
+   * Background follow-ups for an auto-marked student:
+   *  1. Parent email (Resend) + SMS/push via the notification pipeline
+   *  2. In-app notification row (fallback insert if the pipeline is unreachable)
+   *  3. A fresh face sample stored for future recognition — only when the crop
+   *     is high quality, so the gallery keeps the newest & sharpest views.
+   */
+  const runAutoFollowUps = useCallback(
+    async (job: {
+      entryId: string;
+      userId: string;
+      name: string;
+      status: 'present' | 'late';
+      confidence: number;
+      descriptor?: Float32Array;
+      crop: { dataUrl: string; blurScore: number } | null;
+    }) => {
+      // 1 + 2 — notifications (email via Resend, push, SMS, in-app row)
+      try {
+        const result = await sendAutoParentNotification(job.userId, job.name, job.status, job.crop?.dataUrl);
+        patchAutoMarked(job.entryId, { emailed: !!result?.success, notified: true });
+        if (!result?.success) {
+          await supabase.from('notifications').insert({
+            user_id: job.userId,
+            title: `Attendance marked ${job.status}`,
+            message: `${job.name} was marked ${job.status} by live Face ID at ${new Date().toLocaleTimeString()}.`,
+            type: job.status === 'late' ? 'warning' : 'success',
+            metadata: { source: 'live-face-id', confidence: job.confidence },
+          });
+        }
+      } catch (err) {
+        console.warn('Auto notification follow-up failed:', err);
+      }
+
+      // 3 — high-quality face sample for progressive training
+      try {
+        const isHighQuality =
+          job.confidence >= 0.8 && !!job.crop && job.crop.blurScore >= AUTO_SAMPLE_MIN_SHARPNESS;
+        if (job.descriptor && isHighQuality && job.crop) {
+          const blob = await (await fetch(job.crop.dataUrl)).blob();
+          const stored = await storeFaceSample(job.userId, job.descriptor, blob, job.name, job.confidence);
+          patchAutoMarked(job.entryId, { sampleSaved: stored });
+        }
+      } catch (err) {
+        console.warn('Auto face-sample capture failed:', err);
+      }
+    },
+    [patchAutoMarked]
+  );
+
+
+
   useEffect(() => {
     const initModels = async () => {
       if (!areModelsLoaded()) {
