@@ -80,7 +80,11 @@ interface AutoMarkedEntry {
   status: 'present' | 'late';
   confidence: number;
   at: number;
+  emailed?: boolean;
+  notified?: boolean;
+  sampleSaved?: boolean;
 }
+
 
 
 const descriptorDistance = (a: Float32Array, b: Float32Array) => {
