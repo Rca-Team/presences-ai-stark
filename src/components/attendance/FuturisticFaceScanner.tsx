@@ -76,6 +76,9 @@ const EMBEDDING_DEDUPE_THRESHOLD = 0.46;
 const FACE_CROP_PADDING_PERCENT = 0;
 /** Same person is not re-marked by the live scanner within this window. */
 const AUTO_MARK_COOLDOWN_MS = 5 * 60 * 1000;
+/** Minimum sharpness (gradient energy) for a crop to be kept as a training sample. */
+const AUTO_SAMPLE_MIN_SHARPNESS = 9;
+
 
 interface AutoMarkedEntry {
   id: string;
