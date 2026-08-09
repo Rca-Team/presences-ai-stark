@@ -17,6 +17,8 @@ interface StudentRow {
   present: number;
   late: number;
   absent: number;
+  /** dateKey (toDateString) -> P / L / A for the traditional register */
+  days: Record<string, 'P' | 'L' | 'A'>;
 }
 
 interface ReportData {
@@ -28,6 +30,7 @@ interface ReportData {
   overallRate: string;
   startDate: Date;
   endDate: Date;
+  workingDays: Date[];
 }
 
 interface ClassSectionReportProps {
@@ -96,7 +99,7 @@ const ClassSectionReport: React.FC<ClassSectionReportProps> = ({ allowedCategori
       const key = record.user_id || employeeId || record.id;
       if (!name || name === 'Unknown' || seen.has(key)) return;
       seen.add(key);
-      studentMap.set(key, { name, employeeId, present: 0, late: 0, absent: totalWorkDays });
+      studentMap.set(key, { name, employeeId, present: 0, late: 0, absent: totalWorkDays, days: {} });
     });
 
     const attendanceByStudent = new Map<string, Map<string, string>>();
@@ -133,19 +136,21 @@ const ClassSectionReport: React.FC<ClassSectionReportProps> = ({ allowedCategori
       }
     });
 
+    workingDays.sort((a, b) => a.getTime() - b.getTime());
+
     for (const [key, student] of studentMap) {
       const dayMap = attendanceByStudent.get(key);
-      if (dayMap) {
-        let present = 0, late = 0;
-        workingDays.forEach(d => {
-          const s = dayMap.get(d.toDateString());
-          if (s === 'present') present++;
-          else if (s === 'late') late++;
-        });
-        student.present = present;
-        student.late = late;
-        student.absent = totalWorkDays - present - late;
-      }
+      let present = 0, late = 0;
+      workingDays.forEach(d => {
+        const dateKey = d.toDateString();
+        const s = dayMap?.get(dateKey);
+        if (s === 'present') { present++; student.days[dateKey] = 'P'; }
+        else if (s === 'late') { late++; student.days[dateKey] = 'L'; }
+        else { student.days[dateKey] = 'A'; }
+      });
+      student.present = present;
+      student.late = late;
+      student.absent = totalWorkDays - present - late;
     }
 
     const students = Array.from(studentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -156,7 +161,7 @@ const ClassSectionReport: React.FC<ClassSectionReportProps> = ({ allowedCategori
       ? (((totalPresent + totalLate) / (students.length * totalWorkDays)) * 100).toFixed(1)
       : '0.0';
 
-    return { students, totalWorkDays, totalPresent, totalLate, totalAbsent, overallRate, startDate: thirtyDaysAgo, endDate: today };
+    return { students, totalWorkDays, totalPresent, totalLate, totalAbsent, overallRate, startDate: thirtyDaysAgo, endDate: today, workingDays };
   };
 
   const guardCategory = () => {
