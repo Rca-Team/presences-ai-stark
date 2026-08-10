@@ -236,7 +236,7 @@ serve(async (req) => {
         .maybeSingle();
 
       const metadata = (registrationRecord as any)?.device_info?.metadata || {};
-      parentEmail = metadata?.parent_email || null;
+      parentEmail = normalizeEmail(metadata?.parent_email);
       parentName = metadata?.parent_name || parentName;
       parentPhone = metadata?.parent_phone || parentPhone;
     }
