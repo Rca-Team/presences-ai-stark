@@ -461,7 +461,7 @@ serve(async (req) => {
       payload.student.id,
     )
 
-    const recipientEmail = payload.recipient.email || parentContact?.email || null
+    const recipientEmail = normalizeEmail(payload.recipient.email) || normalizeEmail(parentContact?.email) || null
     const recipientPhone = normalizePhone(payload.recipient.phone || parentContact?.phone || null)
     const recipientName = payload.recipient.name || parentContact?.name || 'Parent/Guardian'
 
