@@ -114,7 +114,7 @@ async function sendEmailWithResendOrConnector(rawPayload: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'School Alerts <noreply@presences.dev>',
+        from: FROM_ADDRESS,
         to: [payload.to],
         subject: payload.subject,
         html: payload.html,
@@ -145,7 +145,7 @@ async function sendEmailWithResendOrConnector(rawPayload: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'School Alerts <noreply@presences.dev>',
+      from: FROM_ADDRESS,
       to: [payload.to],
       subject: payload.subject,
       html: payload.html,
