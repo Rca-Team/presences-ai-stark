@@ -92,7 +92,7 @@ async function sendEmailResendThenGmail(rawTo: string, rawSubject: string, rawHt
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'School Alerts <noreply@presences.dev>',
+            from: FROM_ADDRESS,
             to: [to],
             subject,
             html,
@@ -124,7 +124,7 @@ async function sendEmailResendThenGmail(rawTo: string, rawSubject: string, rawHt
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'School Alerts <noreply@presences.dev>',
+            from: FROM_ADDRESS,
             to: [to],
             subject,
             html,
