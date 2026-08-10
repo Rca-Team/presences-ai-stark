@@ -220,7 +220,7 @@ serve(async (req) => {
       .eq('user_id', studentId)
       .maybeSingle();
 
-    let parentEmail = profileData?.parent_email || null;
+    let parentEmail = normalizeEmail(profileData?.parent_email);
     let parentName = profileData?.parent_name || 'Parent/Guardian';
     let parentPhone = (profileData as any)?.metadata?.parent_phone || profileData?.phone || null;
 
