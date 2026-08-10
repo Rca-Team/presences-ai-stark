@@ -49,11 +49,19 @@ function normalizeEmail(email?: string | null): string | null {
 const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'School Alerts <noreply@presences.dev>'
 
 
-async function sendEmailWithResendOrConnector(payload: {
+async function sendEmailWithResendOrConnector(rawPayload: {
   to: string
   subject: string
   html: string
 }) {
+  const to = normalizeEmail(rawPayload.to)
+  if (!to) {
+    return { ok: false, error: `Invalid recipient email address: "${rawPayload.to}"` }
+  }
+  const subject = (rawPayload.subject || '').trim() || 'School Notification'
+  const html = (rawPayload.html || '').trim() || '<p>School notification</p>'
+  const payload = { to, subject, html }
+
   const sendViaGmailFallback = async () => {
     if (!lovableApiKey || !googleMailApiKey) {
       return { ok: false, error: 'Gmail fallback not configured' }
