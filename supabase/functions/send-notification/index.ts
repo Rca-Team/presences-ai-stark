@@ -33,6 +33,22 @@ function normalizePhone(phone?: string | null): string | null {
   return /^\d{10,15}$/.test(clean) ? clean : null
 }
 
+const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[A-Za-z]{2,}$/
+
+/** Returns a clean, RFC-valid address or null. Prevents Resend 422 validation_error. */
+function normalizeEmail(email?: string | null): string | null {
+  if (!email || typeof email !== 'string') return null
+  let clean = email.trim()
+  // accept "Name <email@example.com>" and extract the address
+  const angle = clean.match(/<([^>]+)>/)
+  if (angle) clean = angle[1].trim()
+  clean = clean.replace(/^mailto:/i, '').toLowerCase()
+  return EMAIL_RE.test(clean) ? clean : null
+}
+
+const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'School Alerts <noreply@presences.dev>'
+
+
 async function sendEmailWithResendOrConnector(payload: {
   to: string
   subject: string
