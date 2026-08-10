@@ -216,7 +216,7 @@ serve(async (req) => {
 
     const { data: profileData } = await supabaseClient
       .from('profiles')
-      .select('parent_email, parent_name, phone, display_name, metadata')
+      .select('parent_email, parent_name, phone, display_name, metadata, email')
       .eq('user_id', studentId)
       .maybeSingle();
 
@@ -239,6 +239,12 @@ serve(async (req) => {
       parentEmail = normalizeEmail(metadata?.parent_email);
       parentName = metadata?.parent_name || parentName;
       parentPhone = metadata?.parent_phone || parentPhone;
+    }
+
+    // Final fallback: send to the student's own account email so the alert is never silently dropped.
+    if (!parentEmail) {
+      parentEmail = normalizeEmail((profileData as any)?.email)
+        || normalizeEmail(Deno.env.get('NOTIFY_FALLBACK_EMAIL'));
     }
 
     const results = { emailSent: false, whatsappSent: false, smsSent: false, errors: [] as string[] };

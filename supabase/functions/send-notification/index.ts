@@ -343,14 +343,14 @@ async function resolveParentContact(supabaseClient: any, targetUserId?: string, 
 
   let { data: profile } = await supabaseClient
     .from('profiles')
-    .select('parent_email, parent_name, parent_phone, phone, metadata')
+    .select('parent_email, parent_name, parent_phone, phone, metadata, email')
     .eq('user_id', lookupId)
     .maybeSingle()
 
   if (!profile) {
     const byId = await supabaseClient
       .from('profiles')
-      .select('parent_email, parent_name, parent_phone, phone, metadata')
+      .select('parent_email, parent_name, parent_phone, phone, metadata, email')
       .eq('id', lookupId)
       .maybeSingle()
     profile = byId.data
@@ -375,7 +375,7 @@ async function resolveParentContact(supabaseClient: any, targetUserId?: string, 
 
   const metadata = (profile as any)?.metadata || {}
   return {
-    email: profile?.parent_email || null,
+    email: profile?.parent_email || (profile as any)?.email || null,
     phone: normalizePhone(profile?.parent_phone || metadata?.parent_phone || profile?.phone || null),
     name: profile?.parent_name || null,
   }
@@ -461,7 +461,10 @@ serve(async (req) => {
       payload.student.id,
     )
 
-    const recipientEmail = normalizeEmail(payload.recipient.email) || normalizeEmail(parentContact?.email) || null
+    const recipientEmail = normalizeEmail(payload.recipient.email)
+      || normalizeEmail(parentContact?.email)
+      || normalizeEmail(Deno.env.get('NOTIFY_FALLBACK_EMAIL'))
+      || null
     const recipientPhone = normalizePhone(payload.recipient.phone || parentContact?.phone || null)
     const recipientName = payload.recipient.name || parentContact?.name || 'Parent/Guardian'
 
