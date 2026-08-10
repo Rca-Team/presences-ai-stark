@@ -61,9 +61,29 @@ async function sendEmailViaGmail(to: string, subject: string, html: string): Pro
   }
 }
 
-async function sendEmailResendThenGmail(to: string, subject: string, html: string): Promise<{ success: boolean; provider?: 'resend' | 'gmail'; id?: string | null; error?: string }> {
+const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[A-Za-z]{2,}$/;
+
+/** Returns a clean, RFC-valid address or null. Prevents Resend 422 validation_error. */
+function normalizeEmail(email?: string | null): string | null {
+  if (!email || typeof email !== 'string') return null;
+  let clean = email.trim();
+  const angle = clean.match(/<([^>]+)>/);
+  if (angle) clean = angle[1].trim();
+  clean = clean.replace(/^mailto:/i, '').toLowerCase();
+  return EMAIL_RE.test(clean) ? clean : null;
+}
+
+const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'School Alerts <noreply@presences.dev>';
+
+async function sendEmailResendThenGmail(rawTo: string, rawSubject: string, rawHtml: string): Promise<{ success: boolean; provider?: 'resend' | 'gmail'; id?: string | null; error?: string }> {
+  const to = normalizeEmail(rawTo);
+  if (!to) return { success: false, error: `Invalid recipient email address: "${rawTo}"` };
+  const subject = (rawSubject || '').trim() || 'School Notification';
+  const html = (rawHtml || '').trim() || '<p>School notification</p>';
+
   if (resendApiKey) {
     try {
+
       if (resendApiKey.startsWith('re_')) {
         const resendResponse = await fetch('https://api.resend.com/emails', {
           method: 'POST',
