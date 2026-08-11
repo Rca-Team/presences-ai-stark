@@ -335,6 +335,7 @@ function normalizePayload(raw: any) {
     subject,
     body,
     targetUserId: typeof raw?.targetUserId === 'string' ? raw.targetUserId : undefined,
+    photoUrl: typeof raw?.photoUrl === 'string' ? raw.photoUrl : typeof raw?.imageUrl === 'string' ? raw.imageUrl : undefined,
   }
 }
 
