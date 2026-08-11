@@ -330,7 +330,12 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
           const video = webcamRef.current?.video;
           const crop = video ? captureFaceArea(video, face.box) : null;
 
-          const cutoffTime = await getAttendanceCutoffTime();
+          // Cutoff is cached for 5 minutes — no per-student network round-trip
+          let cutoffTime = cutoffCacheRef.current?.value;
+          if (!cutoffTime || Date.now() - (cutoffCacheRef.current?.at ?? 0) > 300_000) {
+            cutoffTime = await getAttendanceCutoffTime();
+            cutoffCacheRef.current = { value: cutoffTime, at: Date.now() };
+          }
           const status: 'present' | 'late' = isPastCutoffTime(cutoffTime) ? 'late' : 'present';
 
           const outcome = await recordAttendance(
