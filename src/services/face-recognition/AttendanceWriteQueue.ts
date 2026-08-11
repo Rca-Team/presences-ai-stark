@@ -27,7 +27,7 @@ const seen = new Map<string, number>();
 let queue: WriteJob[] = [];
 let active = 0;
 let draining = false;
-let opts: Required<QueueOptions> = { dedupeMs: 60_000, maxAttempts: 4, concurrency: 2 };
+let opts: Required<QueueOptions> = { dedupeMs: 20_000, maxAttempts: 4, concurrency: 3 };
 const listeners = new Set<(depth: number) => void>();
 
 export function configureWriteQueue(next: QueueOptions): void {
