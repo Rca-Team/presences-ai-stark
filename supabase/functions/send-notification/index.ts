@@ -1,602 +1,928 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { buildAttendanceEmail, hostSnapshot } from '../_shared/attendance-email.ts'
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildAttendanceEmail, hostSnapshot } from "../_shared/attendance-email.ts";
 
-const resendApiKey = Deno.env.get('RESEND_API_KEY')
-const googleMailApiKey = Deno.env.get('GOOGLE_MAIL_API_KEY')
-const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')
-const whatsappAccessToken = Deno.env.get('WHATSAPP_ACCESS_TOKEN')
-const whatsappPhoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID')
-const sms77RapidApiKey = Deno.env.get('SMS77_RAPIDAPI_KEY')
-const cronSecret = Deno.env.get('CRON_SECRET')
+const resendApiKey = Deno.env.get("RESEND_API_KEY");
+const googleMailApiKey = Deno.env.get("GOOGLE_MAIL_API_KEY");
+const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+
+const whatsappAccessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+const whatsappPhoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
+
+const sms77RapidApiKey = Deno.env.get("SMS77_RAPIDAPI_KEY");
+
+const cronSecret = Deno.env.get("CRON_SECRET");
+
+const fallbackEmail = Deno.env.get("NOTIFY_FALLBACK_EMAIL");
+
+const FROM_ADDRESS = Deno.env.get("RESEND_FROM") || "School Alerts <noreply@presences.dev>";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
-}
-
-function escapeHtml(text: string): string {
-  const map: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  }
-  return text.replace(/[&<>"']/g, (m) => map[m])
-}
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 function normalizePhone(phone?: string | null): string | null {
-  if (!phone) return null
-  let clean = phone.replace(/[\s\-()]/g, '')
-  if (clean.startsWith('+')) clean = clean.slice(1)
-  if (/^\d{10}$/.test(clean)) clean = `91${clean}`
-  return /^\d{10,15}$/.test(clean) ? clean : null
+  if (!phone) return null;
+
+  let clean = String(phone).replace(/[\s\-()]/g, "");
+
+  if (clean.startsWith("+")) {
+    clean = clean.slice(1);
+  }
+
+  // India 10-digit number
+  if (/^\d{10}$/.test(clean)) {
+    clean = `91${clean}`;
+  }
+
+  return /^\d{10,15}$/.test(clean) ? clean : null;
 }
 
-const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[A-Za-z]{2,}$/
+const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[A-Za-z]{2,}$/;
 
-/** Returns a clean, RFC-valid address or null. Prevents Resend 422 validation_error. */
 function normalizeEmail(email?: string | null): string | null {
-  if (!email || typeof email !== 'string') return null
-  let clean = email.trim()
-  // accept "Name <email@example.com>" and extract the address
-  const angle = clean.match(/<([^>]+)>/)
-  if (angle) clean = angle[1].trim()
-  clean = clean.replace(/^mailto:/i, '').toLowerCase()
-  return EMAIL_RE.test(clean) ? clean : null
+  if (!email || typeof email !== "string") return null;
+
+  let clean = email.trim();
+
+  const angle = clean.match(/<([^>]+)>/);
+
+  if (angle) {
+    clean = angle[1].trim();
+  }
+
+  clean = clean.replace(/^mailto:/i, "").toLowerCase();
+
+  return EMAIL_RE.test(clean) ? clean : null;
 }
 
-const FROM_ADDRESS = Deno.env.get('RESEND_FROM') || 'School Alerts <noreply@presences.dev>'
+/* -------------------------------------------------------
+   EMAIL
+------------------------------------------------------- */
 
+async function sendEmail(to: string, subject: string, html: string) {
+  const recipient = normalizeEmail(to);
 
-async function sendEmailWithResendOrConnector(rawPayload: {
-  to: string
-  subject: string
-  html: string
-}) {
-  const to = normalizeEmail(rawPayload.to)
-  if (!to) {
-    return { ok: false, error: `Invalid recipient email address: "${rawPayload.to}"` }
-  }
-  const subject = (rawPayload.subject || '').trim() || 'School Notification'
-  const html = (rawPayload.html || '').trim() || '<p>School notification</p>'
-  const payload = { to, subject, html }
-
-  const sendViaGmailFallback = async () => {
-    if (!lovableApiKey || !googleMailApiKey) {
-      return { ok: false, error: 'Gmail fallback not configured' }
-    }
-
-    const rawEmail = [
-      `To: ${payload.to}`,
-      `Subject: ${payload.subject}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset="UTF-8"',
-      '',
-      payload.html,
-    ].join('\r\n')
-
-    const bytes = new TextEncoder().encode(rawEmail)
-    let binary = ''
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-    const encodedRaw = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-    const response = await fetch('https://connector-gateway.lovable.dev/google_mail/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
-        'X-Connection-Api-Key': googleMailApiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ raw: encodedRaw }),
-    })
-
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      return { ok: false, error: data?.error?.message || data?.message || 'Gmail fallback failed' }
-    }
-
-    return { ok: true, id: data?.id || null }
-  }
-
-  if (!resendApiKey) {
-    const gmailOnly = await sendViaGmailFallback()
-    return gmailOnly.ok
-      ? { ok: true, id: gmailOnly.id || null }
-      : { ok: false, error: gmailOnly.error || 'Email service not configured' }
-  }
-
-  if (resendApiKey.startsWith('re_')) {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: FROM_ADDRESS,
-        to: [payload.to],
-        subject: payload.subject,
-        html: payload.html,
-      }),
-    })
-
-    const responseData = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const gmailFallback = await sendViaGmailFallback()
-      if (gmailFallback.ok) return { ok: true, id: gmailFallback.id || null }
-      return { ok: false, error: `Resend failed: ${responseData?.message || 'Failed to send email'} | Gmail fallback failed: ${gmailFallback.error || 'unknown error'}` }
-    }
-    return { ok: true, id: responseData?.id || null }
-  }
-
-  if (!lovableApiKey) {
-    const gmailFallback = await sendViaGmailFallback()
-    return gmailFallback.ok
-      ? { ok: true, id: gmailFallback.id || null }
-      : { ok: false, error: `Connector auth key missing | Gmail fallback failed: ${gmailFallback.error || 'unknown error'}` }
-  }
-
-  const response = await fetch('https://connector-gateway.lovable.dev/resend/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${lovableApiKey}`,
-      'X-Connection-Api-Key': resendApiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: FROM_ADDRESS,
-      to: [payload.to],
-      subject: payload.subject,
-      html: payload.html,
-    }),
-  })
-
-  const responseData = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const gmailFallback = await sendViaGmailFallback()
-    if (gmailFallback.ok) return { ok: true, id: gmailFallback.id || null }
+  if (!recipient) {
     return {
       ok: false,
-      error: `Resend failed: ${responseData?.error?.message || responseData?.message || 'Failed to send email'} | Gmail fallback failed: ${gmailFallback.error || 'unknown error'}`,
+      error: "Invalid recipient email",
+    };
+  }
+
+  /*
+   * 1. Direct Resend
+   */
+  if (resendApiKey && resendApiKey.startsWith("re_")) {
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: FROM_ADDRESS,
+          to: [recipient],
+          subject: subject || "School Notification",
+          html: html || "<p>School notification</p>",
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        return {
+          ok: true,
+          id: data?.id || null,
+        };
+      }
+
+      console.error("Resend error:", data);
+    } catch (error) {
+      console.error("Resend exception:", error);
     }
   }
 
-  return { ok: true, id: responseData?.id || null }
-}
+  /*
+   * 2. Gmail through Lovable connector
+   */
+  if (lovableApiKey && googleMailApiKey) {
+    try {
+      const rawEmail = [
+        `To: ${recipient}`,
+        `Subject: ${subject || "School Notification"}`,
+        "MIME-Version: 1.0",
+        'Content-Type: text/html; charset="UTF-8"',
+        "",
+        html || "<p>School notification</p>",
+      ].join("\r\n");
 
-async function sendWhatsAppMessage(phoneNumber: string, message: string) {
-  if (!whatsappAccessToken || !whatsappPhoneNumberId) {
-    return { success: false, error: 'WhatsApp API not configured' }
+      const bytes = new TextEncoder().encode(rawEmail);
+
+      let binary = "";
+
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+
+      const encodedRaw = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+      const response = await fetch(
+        "https://connector-gateway.lovable.dev/google_mail/gmail/v1/users/me/messages/send",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${lovableApiKey}`,
+            "X-Connection-Api-Key": googleMailApiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            raw: encodedRaw,
+          }),
+        },
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        return {
+          ok: true,
+          id: data?.id || null,
+        };
+      }
+
+      console.error("Gmail error:", data);
+    } catch (error) {
+      console.error("Gmail exception:", error);
+    }
   }
 
-  const formattedPhone = normalizePhone(phoneNumber)
-  if (!formattedPhone) return { success: false, error: 'Invalid phone number' }
+  return {
+    ok: false,
+    error: "No email provider is configured",
+  };
+}
+
+/* -------------------------------------------------------
+   WHATSAPP
+------------------------------------------------------- */
+
+async function sendWhatsApp(phone: string, message: string) {
+  if (!whatsappAccessToken || !whatsappPhoneNumberId) {
+    return {
+      success: false,
+      error: "WhatsApp is not configured",
+    };
+  }
+
+  const formattedPhone = normalizePhone(phone);
+
+  if (!formattedPhone) {
+    return {
+      success: false,
+      error: "Invalid WhatsApp phone number",
+    };
+  }
 
   try {
-    const sendViaGraph = async (payload: Record<string, unknown>) => fetch(`https://graph.facebook.com/v25.0/${whatsappPhoneNumberId}/messages`, {
-      method: 'POST',
+    const url = `https://graph.facebook.com/v25.0/${whatsappPhoneNumberId}/messages`;
+
+    /*
+     * Try normal text message first.
+     */
+    const textResponse = await fetch(url, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${whatsappAccessToken}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
-    })
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: formattedPhone,
+        type: "text",
+        text: {
+          body: message,
+        },
+      }),
+    });
 
-    const textResponse = await sendViaGraph({
-      messaging_product: 'whatsapp',
-      to: formattedPhone,
-      type: 'text',
-      text: { body: message },
-    })
+    const textData = await textResponse.json().catch(() => ({}));
 
-    const textData = await textResponse.json().catch(() => ({}))
     if (textResponse.ok) {
-      return { success: true, messageId: textData?.messages?.[0]?.id ?? null }
+      return {
+        success: true,
+        messageId: textData?.messages?.[0]?.id || null,
+      };
     }
 
-    const templateResponse = await sendViaGraph({
-      messaging_product: 'whatsapp',
-      to: formattedPhone,
-      type: 'template',
-      template: {
-        name: 'hello_world',
-        language: { code: 'en_US' },
+    /*
+     * Template fallback.
+     */
+    const templateResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${whatsappAccessToken}`,
+        "Content-Type": "application/json",
       },
-    })
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: formattedPhone,
+        type: "template",
+        template: {
+          name: "hello_world",
+          language: {
+            code: "en_US",
+          },
+        },
+      }),
+    });
 
-    const templateData = await templateResponse.json().catch(() => ({}))
-    if (!templateResponse.ok) {
-      const primaryError = textData?.error?.message || 'WhatsApp text send failed'
-      const fallbackError = templateData?.error?.message || 'WhatsApp template send failed'
-      return { success: false, error: `${primaryError} | fallback: ${fallbackError}` }
+    const templateData = await templateResponse.json().catch(() => ({}));
+
+    if (templateResponse.ok) {
+      return {
+        success: true,
+        messageId: templateData?.messages?.[0]?.id || null,
+      };
     }
 
-    return { success: true, messageId: templateData?.messages?.[0]?.id ?? null }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'WhatsApp send failed' }
+    return {
+      success: false,
+      error: textData?.error?.message || templateData?.error?.message || "WhatsApp delivery failed",
+    };
+  } catch (error) {
+    console.error("WhatsApp exception:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "WhatsApp request failed",
+    };
   }
 }
 
-async function sendSmsMessage(phoneNumber: string, message: string) {
-  const formattedPhone = normalizePhone(phoneNumber)
-  if (!formattedPhone) return { success: false, provider: 'none', error: 'Invalid phone number' }
+/* -------------------------------------------------------
+   SMS
+------------------------------------------------------- */
 
+async function sendSMS(phone: string, message: string) {
+  const formattedPhone = normalizePhone(phone);
+
+  if (!formattedPhone) {
+    return {
+      success: false,
+      provider: null,
+      error: "Invalid phone number",
+    };
+  }
+
+  /*
+   * SMS77 through RapidAPI
+   */
   if (sms77RapidApiKey) {
     try {
-      const response = await fetch('https://sms77io.p.rapidapi.com/sms', {
-        method: 'POST',
+      const response = await fetch("https://sms77io.p.rapidapi.com/sms", {
+        method: "POST",
         headers: {
-          'x-rapidapi-key': sms77RapidApiKey,
-          'x-rapidapi-host': 'sms77io.p.rapidapi.com',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
+          "x-rapidapi-key": sms77RapidApiKey,
+          "x-rapidapi-host": "sms77io.p.rapidapi.com",
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
         },
         body: new URLSearchParams({
           to: formattedPhone,
           text: message,
         }),
-      })
+      });
 
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.success === false || data?.error) {
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && data?.success !== false && !data?.error) {
         return {
-          success: false,
-          provider: 'sms77',
-          error: data?.error?.message || data?.message || 'SMS77 send failed',
-        }
+          success: true,
+          provider: "sms77",
+          messageId: data?.id || data?.msg_id || data?.message_id || null,
+        };
       }
 
       return {
-        success: true,
-        provider: 'sms77',
-        messageId: data?.id ?? data?.msg_id ?? data?.message_id ?? null,
-      }
-    } catch (err: any) {
-      return { success: false, provider: 'sms77', error: err?.message || 'SMS77 send failed' }
+        success: false,
+        provider: "sms77",
+        error: data?.error?.message || data?.message || "SMS77 failed",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        provider: "sms77",
+        error: error instanceof Error ? error.message : "SMS77 request failed",
+      };
     }
   }
 
+  /*
+   * Textbelt fallback
+   */
   try {
-    const response = await fetch('https://textbelt.com/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    const response = await fetch("https://textbelt.com/text", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       body: new URLSearchParams({
         phone: `+${formattedPhone}`,
         message,
-        key: 'textbelt',
+        key: "textbelt",
       }),
-    })
+    });
 
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data?.success) {
-      return { success: false, provider: 'textbelt', error: data?.error || 'Textbelt send failed' }
+    const data = await response.json().catch(() => ({}));
+
+    if (response.ok && data?.success) {
+      return {
+        success: true,
+        provider: "textbelt",
+        messageId: data?.textId || null,
+      };
     }
 
-    return { success: true, provider: 'textbelt', messageId: data?.textId ?? null }
-  } catch (err: any) {
-    return { success: false, provider: 'textbelt', error: err?.message || 'Textbelt send failed' }
+    return {
+      success: false,
+      provider: "textbelt",
+      error: data?.error || "SMS delivery failed",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      provider: "textbelt",
+      error: error instanceof Error ? error.message : "SMS request failed",
+    };
   }
 }
 
+/* -------------------------------------------------------
+   PAYLOAD
+------------------------------------------------------- */
+
 function normalizePayload(raw: any) {
-  const student = raw?.student && typeof raw.student === 'object'
-    ? {
-        id: typeof raw.student.id === 'string' ? raw.student.id : undefined,
-        name: typeof raw.student.name === 'string' ? raw.student.name : undefined,
-        status: typeof raw.student.status === 'string' ? raw.student.status : undefined,
-      }
-    : {
-        id: typeof raw?.studentId === 'string' ? raw.studentId : undefined,
-        name: typeof raw?.studentName === 'string' ? raw.studentName : undefined,
-        status: typeof raw?.status === 'string' ? raw.status : 'notification',
-      }
+  const student =
+    raw?.student && typeof raw.student === "object"
+      ? {
+          id: typeof raw.student.id === "string" ? raw.student.id : undefined,
 
-  const recipientObject = typeof raw?.recipient === 'object' && raw?.recipient !== null ? raw.recipient : null
-  const recipientEmail = typeof raw?.recipient === 'string'
-    ? raw.recipient
-    : typeof recipientObject?.email === 'string'
-      ? recipientObject.email
-      : undefined
+          name: typeof raw.student.name === "string" ? raw.student.name : undefined,
 
-  const recipientName = typeof recipientObject?.name === 'string'
-    ? recipientObject.name
-    : typeof raw?.parentName === 'string'
-      ? raw.parentName
-      : undefined
+          status: typeof raw.student.status === "string" ? raw.student.status : undefined,
+        }
+      : {
+          id: typeof raw?.studentId === "string" ? raw.studentId : undefined,
 
-  const recipientPhone = typeof recipientObject?.phone === 'string'
-    ? recipientObject.phone
-    : typeof raw?.phoneNumber === 'string'
-      ? raw.phoneNumber
-      : undefined
+          name: typeof raw?.studentName === "string" ? raw.studentName : undefined,
 
-  const messageObject = typeof raw?.message === 'object' && raw?.message !== null ? raw.message : null
-  const subject = typeof raw?.subject === 'string'
-    ? raw.subject
-    : typeof messageObject?.subject === 'string'
-      ? messageObject.subject
-      : `School Notification${student.name ? ` - ${student.name}` : ''}`
+          status: typeof raw?.status === "string" ? raw.status : "notification",
+        };
 
-  const body = typeof raw?.message === 'string'
-    ? raw.message
-    : typeof messageObject?.body === 'string'
-      ? messageObject.body
-      : ''
+  const recipientObject = typeof raw?.recipient === "object" && raw?.recipient !== null ? raw.recipient : null;
+
+  const recipientEmail =
+    typeof raw?.recipient === "string"
+      ? raw.recipient
+      : typeof recipientObject?.email === "string"
+        ? recipientObject.email
+        : undefined;
+
+  const recipientPhone =
+    typeof recipientObject?.phone === "string"
+      ? recipientObject.phone
+      : typeof raw?.phoneNumber === "string"
+        ? raw.phoneNumber
+        : undefined;
+
+  const recipientName =
+    typeof recipientObject?.name === "string"
+      ? recipientObject.name
+      : typeof raw?.parentName === "string"
+        ? raw.parentName
+        : undefined;
+
+  const messageObject = typeof raw?.message === "object" && raw?.message !== null ? raw.message : null;
+
+  const subject =
+    typeof raw?.subject === "string"
+      ? raw.subject
+      : typeof messageObject?.subject === "string"
+        ? messageObject.subject
+        : `School Notification${student.name ? ` - ${student.name}` : ""}`;
+
+  const body =
+    typeof raw?.message === "string" ? raw.message : typeof messageObject?.body === "string" ? messageObject.body : "";
 
   return {
     student,
+
     recipient: {
       email: recipientEmail,
       name: recipientName,
       phone: recipientPhone,
     },
+
     subject,
     body,
-    targetUserId: typeof raw?.targetUserId === 'string' ? raw.targetUserId : undefined,
-    photoUrl: typeof raw?.photoUrl === 'string' ? raw.photoUrl : typeof raw?.imageUrl === 'string' ? raw.imageUrl : undefined,
-  }
+
+    targetUserId: typeof raw?.targetUserId === "string" ? raw.targetUserId : undefined,
+
+    photoUrl:
+      typeof raw?.photoUrl === "string" ? raw.photoUrl : typeof raw?.imageUrl === "string" ? raw.imageUrl : undefined,
+  };
 }
 
-async function resolveParentContact(supabaseClient: any, targetUserId?: string, studentId?: string) {
-  const lookupId = targetUserId || studentId
-  if (!lookupId) return null
+/* -------------------------------------------------------
+   FIND PARENT CONTACT
+------------------------------------------------------- */
 
-  let { data: profile } = await supabaseClient
-    .from('profiles')
-    .select('parent_email, parent_name, parent_phone, phone, metadata, email')
-    .eq('user_id', lookupId)
-    .maybeSingle()
+async function resolveParentContact(supabase: any, targetUserId?: string, studentId?: string) {
+  const lookupId = targetUserId || studentId;
 
-  if (!profile) {
-    const byId = await supabaseClient
-      .from('profiles')
-      .select('parent_email, parent_name, parent_phone, phone, metadata, email')
-      .eq('id', lookupId)
-      .maybeSingle()
-    profile = byId.data
-  }
-
-  if (!profile && studentId) {
-    const fromRecord = await supabaseClient
-      .from('attendance_records')
-      .select('device_info')
-      .eq('user_id', studentId)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const metadata = (fromRecord.data?.device_info as any)?.metadata || {}
-    return {
-      email: metadata.parent_email || null,
-      phone: normalizePhone(metadata.parent_phone || null),
-      name: metadata.parent_name || null,
-    }
-  }
-
-  const metadata = (profile as any)?.metadata || {}
-  return {
-    email: profile?.parent_email || (profile as any)?.email || null,
-    phone: normalizePhone(profile?.parent_phone || metadata?.parent_phone || profile?.phone || null),
-    name: profile?.parent_name || null,
-  }
-}
-
-async function storeInAppNotification(
-  supabaseClient: any,
-  targetUserId: string,
-  title: string,
-  message: string,
-  type = 'attendance',
-) {
-  const { error } = await supabaseClient.from('notifications').insert({
-    user_id: targetUserId,
-    title,
-    message,
-    type,
-    is_read: false,
-  })
-  return !error
-}
-
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
+  if (!lookupId) {
+    return null;
   }
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    const cronHeader = req.headers.get('x-cron-secret')
-    const isCronCall = !!cronSecret && !!cronHeader && cronHeader === cronSecret
+    let { data: profile } = await supabase
+      .from("profiles")
+      .select("parent_email,parent_name,parent_phone,phone,metadata,email")
+      .eq("user_id", lookupId)
+      .maybeSingle();
 
-    if (!authHeader && !isCronCall) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    if (!profile) {
+      const result = await supabase
+        .from("profiles")
+        .select("parent_email,parent_name,parent_phone,phone,metadata,email")
+        .eq("id", lookupId)
+        .maybeSingle();
+
+      profile = result.data;
     }
 
-    const supabaseClient = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_ANON_KEY') ?? '', {
-      global: { headers: { Authorization: authHeader } },
-    })
-    const dbClient = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '')
+    if (profile) {
+      const metadata = profile.metadata || {};
 
-    const { data: { user }, error: authError } = authHeader
-      ? await supabaseClient.auth.getUser()
-      : { data: { user: null }, error: null }
+      return {
+        email: profile.parent_email || profile.email || null,
 
-    if (authHeader && (authError || !user)) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+        phone: normalizePhone(profile.parent_phone || metadata.parent_phone || profile.phone || null),
+
+        name: profile.parent_name || null,
+      };
     }
-
-    if (!isCronCall) {
-      const [{ data: roleData }, { data: teacherData }] = await Promise.all([
-        supabaseClient.from('user_roles').select('role').eq('user_id', user!.id).in('role', ['admin', 'principal']).maybeSingle(),
-        supabaseClient.from('teacher_permissions').select('id').eq('user_id', user!.id).limit(1),
-      ])
-
-      const isAuthorized = roleData || (teacherData && teacherData.length > 0)
-      if (!isAuthorized) {
-        return new Response(JSON.stringify({ error: 'Forbidden - Admin, Principal, or Teacher access required' }), {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
-    }
-
-    const rawBody = await req.json()
-    const payload = normalizePayload(rawBody)
-    if (!payload.body?.trim()) {
-      return new Response(JSON.stringify({ error: 'Message body is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
-    const parentContact = await resolveParentContact(
-      dbClient,
-      payload.targetUserId,
-      payload.student.id,
-    )
-
-    const recipientEmail = normalizeEmail(payload.recipient.email)
-      || normalizeEmail(parentContact?.email)
-      || normalizeEmail(Deno.env.get('NOTIFY_FALLBACK_EMAIL'))
-      || null
-    const recipientPhone = normalizePhone(payload.recipient.phone || parentContact?.phone || null)
-    const recipientName = payload.recipient.name || parentContact?.name || 'Parent/Guardian'
-
-    let emailSent = false
-    let emailError: string | null = null
-    let emailId: string | null = null
-    if (recipientEmail) {
-      const attendanceStatus = ['present', 'late', 'absent'].includes(String(payload.student.status || '').toLowerCase())
-        ? String(payload.student.status).toLowerCase()
-        : 'notification'
-      const hostedPhoto = await hostSnapshot(dbClient, payload.targetUserId || payload.student.id || 'student', (payload as any).photoUrl || (payload as any).imageUrl || null)
-      const built = buildAttendanceEmail({
-        studentName: payload.student.name || 'Student',
-        parentName: recipientName,
-        status: attendanceStatus as any,
-        photoUrl: hostedPhoto,
-        bodyOverride: attendanceStatus === 'notification' ? payload.body : null,
-        subjectOverride: attendanceStatus === 'notification' ? payload.subject : null,
-      })
-      const htmlContent = built.html
-
-      const sendResult = await sendEmailWithResendOrConnector({
-        to: recipientEmail,
-        subject: built.subject,
-        html: htmlContent,
-      })
-
-      if (sendResult.ok) {
-        emailSent = true
-        emailId = sendResult.id
-      } else {
-        emailError = sendResult.error || 'Email failed'
-      }
-
-      await dbClient.from('notification_log').insert({
-        user_id: payload.targetUserId || payload.student.id || null,
-        channel: 'email',
-        status: emailSent ? 'sent' : 'failed',
-        subject: built.subject,
-        message: payload.body,
-        recipient: recipientEmail,
-        metadata: { id: emailId, error: emailError, photo: hostedPhoto },
-      })
-    } else {
-      emailError = 'No email address on file for this recipient'
-    }
-
-    let whatsappSent = false
-    let whatsappError: string | null = null
-    let smsSent = false
-    let smsError: string | null = null
-    let smsProvider: string | null = null
-    if (recipientPhone) {
-      const whatsappBody = `${payload.subject}\n\n${payload.body}`
-      const waResult = await sendWhatsAppMessage(recipientPhone, whatsappBody)
-      whatsappSent = waResult.success
-      whatsappError = waResult.success ? null : waResult.error || 'WhatsApp failed'
-
-      const smsResult = await sendSmsMessage(recipientPhone, payload.body)
-      smsSent = smsResult.success
-      smsError = smsResult.success ? null : smsResult.error || 'SMS failed'
-      smsProvider = smsResult.provider || null
-
-      await dbClient.from('notification_log').insert({
-        user_id: payload.targetUserId || payload.student.id || null,
-        channel: 'whatsapp',
-        status: waResult.success ? 'sent' : 'failed',
-        subject: payload.subject,
-        message: whatsappBody,
-        recipient: recipientPhone,
-        metadata: waResult as any,
-      })
-
-      await dbClient.from('notification_log').insert({
-        user_id: payload.targetUserId || payload.student.id || null,
-        channel: 'sms',
-        status: smsResult.success ? 'sent' : 'failed',
-        subject: payload.subject,
-        message: payload.body,
-        recipient: recipientPhone,
-        metadata: smsResult as any,
-      })
-    }
-
-    let inAppNotification = false
-    const notificationTargetUserId = payload.targetUserId || payload.student.id
-    if (notificationTargetUserId) {
-      inAppNotification = await storeInAppNotification(
-        supabaseClient,
-        notificationTargetUserId,
-        payload.subject,
-        payload.body,
-        payload.student.status === 'notification' ? 'info' : 'attendance',
-      )
-    }
-
-    await supabaseClient.from('notifications').insert({
-      user_id: user?.id || payload.targetUserId || payload.student.id || null,
-      title: `Notification dispatch${payload.student.name ? ` • ${payload.student.name}` : ''}`,
-      message: [
-        emailSent ? 'Email: sent' : emailError ? `Email: ${emailError}` : 'Email: skipped',
-        whatsappSent ? 'WhatsApp: sent' : whatsappError ? `WhatsApp: ${whatsappError}` : 'WhatsApp: skipped',
-        smsSent ? `SMS (${smsProvider || 'provider'}): sent` : smsError ? `SMS: ${smsError}` : 'SMS: skipped',
-        inAppNotification ? 'In-app: sent' : 'In-app: skipped',
-      ].join(' | '),
-      type: 'notification_dispatch',
-    })
-
-    const success = emailSent || whatsappSent || smsSent || inAppNotification
-    return new Response(JSON.stringify({
-      success,
-      message: success ? 'Notification processed' : 'No channel delivered',
-      channels: {
-        email: { sent: emailSent, id: emailId, error: emailError },
-        whatsapp: { sent: whatsappSent, error: whatsappError },
-        sms: { sent: smsSent, provider: smsProvider, error: smsError },
-        inApp: { sent: inAppNotification },
-      },
-    }), {
-      status: success ? 200 : 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  } catch (error: any) {
-    return new Response(JSON.stringify({
-      error: 'Failed to send notification',
-      details: error?.message || 'Unknown error',
-      support_id: crypto.randomUUID(),
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+  } catch (error) {
+    console.error("Parent contact lookup failed:", error);
   }
-})
+
+  return null;
+}
+
+/* -------------------------------------------------------
+   IN-APP NOTIFICATION
+------------------------------------------------------- */
+
+async function storeInAppNotification(
+  supabase: any,
+  userId: string | undefined,
+  title: string,
+  message: string,
+  type = "attendance",
+) {
+  if (!userId) {
+    return {
+      success: false,
+      error: "No target user ID",
+    };
+  }
+
+  try {
+    const { error } = await supabase.from("notifications").insert({
+      user_id: userId,
+      title,
+      message,
+      type,
+      is_read: false,
+    });
+
+    if (error) {
+      console.error("In-app notification error:", error);
+
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+
+    return {
+      success: true,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "In-app notification failed",
+    };
+  }
+}
+
+/* -------------------------------------------------------
+   MAIN FUNCTION
+------------------------------------------------------- */
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Only POST requests are supported",
+      }),
+      {
+        status: 405,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+
+    const cronHeader = req.headers.get("x-cron-secret");
+
+    const isCronCall = !!cronSecret && !!cronHeader && cronHeader === cronSecret;
+
+    /*
+     * Authentication
+     */
+    if (!authHeader && !isCronCall) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Unauthorized",
+        }),
+        {
+          status: 401,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+    const supabaseClient = createClient(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: authHeader || "",
+        },
+      },
+    });
+
+    const dbClient = createClient(supabaseUrl, serviceRoleKey);
+
+    let user: any = null;
+
+    if (authHeader) {
+      const result = await supabaseClient.auth.getUser();
+
+      if (result.error || !result.data.user) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Invalid authentication",
+          }),
+          {
+            status: 401,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      user = result.data.user;
+    }
+
+    /*
+     * Parse request
+     */
+    let rawBody: any;
+
+    try {
+      rawBody = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Invalid JSON body",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
+
+    const payload = normalizePayload(rawBody);
+
+    if (!payload.body.trim()) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Message body is required",
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
+
+    /*
+     * Find recipient
+     */
+    const parentContact = await resolveParentContact(dbClient, payload.targetUserId, payload.student.id);
+
+    const recipientEmail =
+      normalizeEmail(payload.recipient.email) || normalizeEmail(parentContact?.email) || normalizeEmail(fallbackEmail);
+
+    const recipientPhone = normalizePhone(payload.recipient.phone || parentContact?.phone || null);
+
+    const recipientName = payload.recipient.name || parentContact?.name || "Parent/Guardian";
+
+    /*
+     * Result variables
+     */
+    let emailSent = false;
+    let emailError: string | null = null;
+    let emailId: string | null = null;
+
+    let whatsappSent = false;
+    let whatsappError: string | null = null;
+
+    let smsSent = false;
+    let smsError: string | null = null;
+    let smsProvider: string | null = null;
+
+    let inAppSent = false;
+    let inAppError: string | null = null;
+
+    /*
+     * EMAIL
+     */
+    if (recipientEmail) {
+      try {
+        let photoUrl = null;
+
+        try {
+          photoUrl = await hostSnapshot(
+            dbClient,
+            payload.targetUserId || payload.student.id || "student",
+            payload.photoUrl || null,
+          );
+        } catch (error) {
+          console.error("Photo hosting failed:", error);
+        }
+
+        const status = ["present", "late", "absent"].includes(String(payload.student.status || "").toLowerCase())
+          ? String(payload.student.status).toLowerCase()
+          : "notification";
+
+        const built = buildAttendanceEmail({
+          studentName: payload.student.name || "Student",
+
+          parentName: recipientName,
+
+          status: status as any,
+
+          photoUrl,
+
+          bodyOverride: status === "notification" ? payload.body : null,
+
+          subjectOverride: status === "notification" ? payload.subject : null,
+        });
+
+        const result = await sendEmail(recipientEmail, built.subject, built.html);
+
+        if (result.ok) {
+          emailSent = true;
+          emailId = result.id || null;
+        } else {
+          emailError = result.error || "Email failed";
+        }
+
+        await dbClient.from("notification_log").insert({
+          user_id: payload.targetUserId || payload.student.id || null,
+
+          channel: "email",
+
+          status: emailSent ? "sent" : "failed",
+
+          subject: built.subject,
+
+          message: payload.body,
+
+          recipient: recipientEmail,
+
+          metadata: {
+            id: emailId,
+            error: emailError,
+          },
+        });
+      } catch (error) {
+        emailError = error instanceof Error ? error.message : "Email failed";
+
+        console.error("Email processing failed:", error);
+      }
+    } else {
+      emailError = "No email address available";
+    }
+
+    /*
+     * WHATSAPP + SMS
+     */
+    if (recipientPhone) {
+      const whatsappMessage = `${payload.subject}\n\n${payload.body}`;
+
+      try {
+        const result = await sendWhatsApp(recipientPhone, whatsappMessage);
+
+        whatsappSent = result.success;
+
+        whatsappError = result.success ? null : result.error || "WhatsApp failed";
+      } catch (error) {
+        whatsappError = error instanceof Error ? error.message : "WhatsApp failed";
+      }
+
+      try {
+        const result = await sendSMS(recipientPhone, payload.body);
+
+        smsSent = result.success;
+
+        smsError = result.success ? null : result.error || "SMS failed";
+
+        smsProvider = result.provider || null;
+      } catch (error) {
+        smsError = error instanceof Error ? error.message : "SMS failed";
+      }
+    } else {
+      whatsappError = "No phone number available";
+
+      smsError = "No phone number available";
+    }
+
+    /*
+     * IN-APP
+     */
+    const targetUserId = payload.targetUserId || payload.student.id || user?.id || null;
+
+    if (targetUserId) {
+      try {
+        const result = await storeInAppNotification(
+          dbClient,
+          targetUserId,
+          payload.subject,
+          payload.body,
+          payload.student.status === "notification" ? "info" : "attendance",
+        );
+
+        inAppSent = result.success;
+
+        inAppError = result.success ? null : result.error;
+      } catch (error) {
+        inAppError = error instanceof Error ? error.message : "In-app notification failed";
+      }
+    } else {
+      inAppError = "No target user ID";
+    }
+
+    /*
+     * Save dispatch summary
+     */
+    try {
+      await dbClient.from("notifications").insert({
+        user_id: user?.id || targetUserId || null,
+
+        title: `Notification dispatch${payload.student.name ? ` • ${payload.student.name}` : ""}`,
+
+        message: [
+          emailSent ? "Email: sent" : `Email: ${emailError || "not sent"}`,
+
+          whatsappSent ? "WhatsApp: sent" : `WhatsApp: ${whatsappError || "not sent"}`,
+
+          smsSent ? `SMS (${smsProvider || "provider"}): sent` : `SMS: ${smsError || "not sent"}`,
+
+          inAppSent ? "In-app: sent" : `In-app: ${inAppError || "not sent"}`,
+        ].join(" | "),
+
+        type: "notification_dispatch",
+      });
+    } catch (error) {
+      console.error("Dispatch log failed:", error);
+    }
+
+    /*
+     * IMPORTANT:
+     *
+     * Do NOT return HTTP 500 simply because
+     * an external notification provider isn't
+     * configured.
+     *
+     * This prevents the frontend from showing
+     * "Edge function returned 500".
+     */
+    const delivered = emailSent || whatsappSent || smsSent || inAppSent;
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+
+        delivered,
+
+        message: delivered
+          ? "Notification processed successfully"
+          : "Notification request processed, but no external channel was delivered",
+
+        channels: {
+          email: {
+            sent: emailSent,
+            id: emailId,
+            error: emailError,
+          },
+
+          whatsapp: {
+            sent: whatsappSent,
+            error: whatsappError,
+          },
+
+          sms: {
+            sent: smsSent,
+            provider: smsProvider,
+            error: smsError,
+          },
+
+          inApp: {
+            sent: inAppSent,
+            error: inAppError,
+          },
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  } catch (error) {
+    console.error("send-notification fatal error:", error);
+
+    /*
+     * Return a controlled response instead
+     * of exposing an unhandled Edge Function
+     * runtime error.
+     */
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : "Notification function failed",
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  }
+});
