@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { buildAttendanceEmail, hostSnapshot } from '../_shared/attendance-email.ts'
 const whatsappAccessToken = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
 const whatsappPhoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
 const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
@@ -216,13 +217,13 @@ serve(async (req) => {
 
     const { data: profileData } = await supabaseClient
       .from('profiles')
-      .select('parent_email, parent_name, phone, display_name, metadata, email')
+      .select('parent_email, parent_name, parent_phone, phone, display_name, metadata, email, class, section')
       .eq('user_id', studentId)
       .maybeSingle();
 
     let parentEmail = normalizeEmail(profileData?.parent_email);
     let parentName = profileData?.parent_name || 'Parent/Guardian';
-    let parentPhone = (profileData as any)?.metadata?.parent_phone || profileData?.phone || null;
+    let parentPhone = (profileData as any)?.parent_phone || (profileData as any)?.metadata?.parent_phone || profileData?.phone || null;
 
     // Fallback: if profile is missing parent email, recover from latest registration metadata.
     if (!parentEmail) {
