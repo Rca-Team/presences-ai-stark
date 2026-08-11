@@ -372,8 +372,10 @@ export function createRecognitionEngine(
         recognizedAt: Date.now(),
       });
 
-      if (!identifiedTracks.has(track.id)) {
-        identifiedTracks.add(track.id);
+      // Fire per *person*, not per track id: a track can be reused by the next
+      // person standing in the same spot, and identities re-verify on TTL.
+      if (markedByTrack.get(track.id) !== match.userId) {
+        markedByTrack.set(track.id, match.userId);
         const identified: IdentifiedFace = {
           trackId: track.id,
           userId: match.userId,
