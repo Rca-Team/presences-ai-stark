@@ -272,6 +272,14 @@ const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({ avail
           </TabsTrigger>
         </TabsList>
 
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <p className="text-xs text-muted-foreground">
+            Emails go to the parent address on file (student account email is used as fallback).
+          </p>
+          <ParentContactImporter />
+        </div>
+
+
         {/* Student Selection for Single/Bulk */}
         <AnimatePresence mode="wait">
           {(activeTab === 'single' || activeTab === 'bulk') && (
