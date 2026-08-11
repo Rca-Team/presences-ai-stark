@@ -446,7 +446,7 @@ export function createRecognitionEngine(
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
       queue = [];
-      identifiedTracks.clear();
+      markedByTrack.clear();
       tracker.reset();
     },
     isRunning: () => running,
