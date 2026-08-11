@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { buildAttendanceEmail, hostSnapshot } from '../_shared/attendance-email.ts'
 
 const resendApiKey = Deno.env.get('RESEND_API_KEY')
 const googleMailApiKey = Deno.env.get('GOOGLE_MAIL_API_KEY')
@@ -334,6 +335,7 @@ function normalizePayload(raw: any) {
     subject,
     body,
     targetUserId: typeof raw?.targetUserId === 'string' ? raw.targetUserId : undefined,
+    photoUrl: typeof raw?.photoUrl === 'string' ? raw.photoUrl : typeof raw?.imageUrl === 'string' ? raw.imageUrl : undefined,
   }
 }
 
@@ -393,7 +395,7 @@ async function storeInAppNotification(
     title,
     message,
     type,
-    read: false,
+    is_read: false,
   })
   return !error
 }
@@ -472,26 +474,23 @@ serve(async (req) => {
     let emailError: string | null = null
     let emailId: string | null = null
     if (recipientEmail) {
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(payload.subject)}</title></head>
-        <body style="font-family:Arial,sans-serif;line-height:1.6;margin:0;padding:0;background:#f4f4f5;">
-          <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;"><tr><td align="center">
-            <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:10px;overflow:hidden;">
-              <tr><td style="padding:20px 24px;background:#1d4ed8;color:#fff;font-size:20px;font-weight:700;">School Notification</td></tr>
-              <tr><td style="padding:24px;white-space:pre-line;color:#111827;">
-                <p style="margin-top:0;">Dear ${escapeHtml(recipientName)},</p>
-                ${escapeHtml(payload.body)}
-              </td></tr>
-            </table>
-          </td></tr></table>
-        </body>
-        </html>`
+      const attendanceStatus = ['present', 'late', 'absent'].includes(String(payload.student.status || '').toLowerCase())
+        ? String(payload.student.status).toLowerCase()
+        : 'notification'
+      const hostedPhoto = await hostSnapshot(dbClient, payload.targetUserId || payload.student.id || 'student', (payload as any).photoUrl || (payload as any).imageUrl || null)
+      const built = buildAttendanceEmail({
+        studentName: payload.student.name || 'Student',
+        parentName: recipientName,
+        status: attendanceStatus as any,
+        photoUrl: hostedPhoto,
+        bodyOverride: attendanceStatus === 'notification' ? payload.body : null,
+        subjectOverride: attendanceStatus === 'notification' ? payload.subject : null,
+      })
+      const htmlContent = built.html
 
       const sendResult = await sendEmailWithResendOrConnector({
         to: recipientEmail,
-        subject: payload.subject,
+        subject: built.subject,
         html: htmlContent,
       })
 
@@ -501,6 +500,18 @@ serve(async (req) => {
       } else {
         emailError = sendResult.error || 'Email failed'
       }
+
+      await dbClient.from('notification_log').insert({
+        user_id: payload.targetUserId || payload.student.id || null,
+        channel: 'email',
+        status: emailSent ? 'sent' : 'failed',
+        subject: built.subject,
+        message: payload.body,
+        recipient: recipientEmail,
+        metadata: { id: emailId, error: emailError, photo: hostedPhoto },
+      })
+    } else {
+      emailError = 'No email address on file for this recipient'
     }
 
     let whatsappSent = false
@@ -520,23 +531,23 @@ serve(async (req) => {
       smsProvider = smsResult.provider || null
 
       await dbClient.from('notification_log').insert({
-        recipient_phone: recipientPhone,
-        recipient_id: payload.targetUserId || payload.student.id || null,
-        message_content: whatsappBody,
-        notification_type: 'whatsapp',
-        language: 'en',
+        user_id: payload.targetUserId || payload.student.id || null,
+        channel: 'whatsapp',
         status: waResult.success ? 'sent' : 'failed',
-        gateway_response: waResult as any,
+        subject: payload.subject,
+        message: whatsappBody,
+        recipient: recipientPhone,
+        metadata: waResult as any,
       })
 
       await dbClient.from('notification_log').insert({
-        recipient_phone: recipientPhone,
-        recipient_id: payload.targetUserId || payload.student.id || null,
-        message_content: payload.body,
-        notification_type: 'sms',
-        language: 'en',
+        user_id: payload.targetUserId || payload.student.id || null,
+        channel: 'sms',
         status: smsResult.success ? 'sent' : 'failed',
-        gateway_response: smsResult as any,
+        subject: payload.subject,
+        message: payload.body,
+        recipient: recipientPhone,
+        metadata: smsResult as any,
       })
     }
 

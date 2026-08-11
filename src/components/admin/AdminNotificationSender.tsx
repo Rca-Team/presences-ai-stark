@@ -26,6 +26,7 @@ import {
   Wand2
 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import ParentContactImporter from '@/components/admin/ParentContactImporter';
 
 interface AdminNotificationSenderProps {
   availableFaces: { id: string; user_id?: string; name: string; employee_id: string }[];
@@ -175,33 +176,29 @@ const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({ avail
 
           let { data: profile } = await supabase
             .from('profiles')
-            .select('parent_email, parent_name, parent_phone, phone, metadata, display_name')
+            .select('parent_email, parent_name, parent_phone, phone, metadata, display_name, email')
             .eq('user_id', targetUserId)
             .maybeSingle();
 
           if (!profile) {
             const result = await supabase
               .from('profiles')
-              .select('parent_email, parent_name, parent_phone, phone, metadata, display_name')
+              .select('parent_email, parent_name, parent_phone, phone, metadata, display_name, email')
               .eq('id', student.id)
               .maybeSingle();
             profile = result.data;
           }
 
-          const parentEmail = profile?.parent_email?.trim() || '';
+          // Fall back to the student's own account email so notices are never silently dropped.
+          const parentEmail = profile?.parent_email?.trim() || (profile as any)?.email?.trim() || '';
           const parentPhone = (profile as any)?.parent_phone || (profile as any)?.metadata?.parent_phone || profile?.phone || '';
 
-          // In-app delivery is always done above; external channels are best-effort.
-          if (!parentEmail && !(typeof parentPhone === 'string' && parentPhone.trim())) {
-            successCount++;
-            continue;
-          }
 
           const { error } = await supabase.functions.invoke('send-notification', {
             body: {
               recipient: {
                 email: parentEmail || null,
-                name: profile.parent_name || `Parent of ${student.name}`,
+                name: profile?.parent_name || `Parent of ${student.name}`,
                 phone: typeof parentPhone === 'string' && parentPhone.trim() ? parentPhone.trim() : null,
               },
               message: {
@@ -274,6 +271,14 @@ const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({ avail
             <span className="hidden sm:inline">Broadcast</span>
           </TabsTrigger>
         </TabsList>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <p className="text-xs text-muted-foreground">
+            Emails go to the parent address on file (student account email is used as fallback).
+          </p>
+          <ParentContactImporter />
+        </div>
+
 
         {/* Student Selection for Single/Bulk */}
         <AnimatePresence mode="wait">
