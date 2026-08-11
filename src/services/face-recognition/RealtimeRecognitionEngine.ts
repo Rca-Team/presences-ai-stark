@@ -40,6 +40,10 @@ export interface EngineOptions {
   shortlist?: number;
   /** Concurrent embedding jobs */
   maxConcurrentJobs?: number;
+  /** How long a track keeps its identity before re-verifying (ms) */
+  identityTtlMs?: number;
+  /** Detection passes a track may be missing before it is dropped */
+  maxMissed?: number;
   /** Called on every detection pass with the current tracks */
   onTracks?: (tracks: FaceTrack[]) => void;
   /** Called once per newly identified person */
