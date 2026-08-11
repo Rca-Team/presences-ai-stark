@@ -387,15 +387,24 @@ export function createRecognitionEngine(
         };
         options.onIdentified?.(identified);
 
-        // Thread 4: database updates run off the recognition path
+        // Thread 4: database updates run off the recognition path.
+        // A hard timeout guarantees one slow write can never occupy a queue slot
+        // and stall attendance marking for everybody behind it.
         if (options.markAttendance) {
           const handler = options.markAttendance;
           enqueueWrite({
-            key: `attendance:${match.userId}`,
+            key: `attendance:${match.userId}:${Math.floor(Date.now() / 30_000)}`,
             payload: identified,
-            run: face => handler(face),
+            run: face =>
+              Promise.race([
+                handler(face),
+                new Promise<void>((_, reject) =>
+                  setTimeout(() => reject(new Error('attendance write timed out')), 15_000),
+                ),
+              ]),
           });
         }
+
       }
       publishStats();
     } catch (err) {
