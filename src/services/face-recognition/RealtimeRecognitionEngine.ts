@@ -189,7 +189,10 @@ export function createRecognitionEngine(
   const shortlist = options.shortlist ?? 16;
   const maxConcurrentJobs = options.maxConcurrentJobs ?? 2;
 
-  const tracker = createFaceTracker({ identityTtlMs: 8000 });
+  const tracker = createFaceTracker({
+    identityTtlMs: options.identityTtlMs ?? 3500,
+    maxMissed: options.maxMissed ?? 4,
+  });
   const detectCanvas = document.createElement('canvas');
   const cropCanvas = document.createElement('canvas');
 
@@ -199,7 +202,8 @@ export function createRecognitionEngine(
   let lastDetectAt = 0;
   let activeJobs = 0;
   let queue: number[] = [];
-  const identifiedTracks = new Set<number>();
+  /** trackId -> userId that was last handed to markAttendance for that track */
+  const markedByTrack = new Map<number, string>();
 
   const stats: EngineStats = {
     detectFps: 0,
