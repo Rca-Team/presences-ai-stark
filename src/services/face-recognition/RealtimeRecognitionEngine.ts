@@ -260,8 +260,17 @@ export function createRecognitionEngine(
     const tracks = tracker.update(boxes);
     stats.detectMs = performance.now() - t0;
     stats.tracked = tracks.length;
-    stats.identified = identifiedTracks.size;
-    options.onTracks?.(tracks);
+    stats.identified = markedByTrack.size;
+
+    // Prune bookkeeping for tracks that no longer exist
+    if (markedByTrack.size > 0) {
+      const live = new Set(tracks.map(t => t.id));
+      for (const id of markedByTrack.keys()) if (!live.has(id)) markedByTrack.delete(id);
+    }
+
+    // Only surface freshly-seen tracks so overlay boxes never linger
+    options.onTracks?.(tracks.filter(t => t.missed === 0));
+
 
     // Queue only NEW faces for recognition
     for (const t of tracker.pendingRecognition()) {
