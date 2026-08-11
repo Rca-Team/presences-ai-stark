@@ -40,6 +40,10 @@ export interface EngineOptions {
   shortlist?: number;
   /** Concurrent embedding jobs */
   maxConcurrentJobs?: number;
+  /** How long a track keeps its identity before re-verifying (ms) */
+  identityTtlMs?: number;
+  /** Detection passes a track may be missing before it is dropped */
+  maxMissed?: number;
   /** Called on every detection pass with the current tracks */
   onTracks?: (tracks: FaceTrack[]) => void;
   /** Called once per newly identified person */
@@ -189,7 +193,10 @@ export function createRecognitionEngine(
   const shortlist = options.shortlist ?? 16;
   const maxConcurrentJobs = options.maxConcurrentJobs ?? 2;
 
-  const tracker = createFaceTracker({ identityTtlMs: 8000 });
+  const tracker = createFaceTracker({
+    identityTtlMs: options.identityTtlMs ?? 3500,
+    maxMissed: options.maxMissed ?? 4,
+  });
   const detectCanvas = document.createElement('canvas');
   const cropCanvas = document.createElement('canvas');
 
@@ -199,7 +206,8 @@ export function createRecognitionEngine(
   let lastDetectAt = 0;
   let activeJobs = 0;
   let queue: number[] = [];
-  const identifiedTracks = new Set<number>();
+  /** trackId -> userId that was last handed to markAttendance for that track */
+  const markedByTrack = new Map<number, string>();
 
   const stats: EngineStats = {
     detectFps: 0,
@@ -252,8 +260,17 @@ export function createRecognitionEngine(
     const tracks = tracker.update(boxes);
     stats.detectMs = performance.now() - t0;
     stats.tracked = tracks.length;
-    stats.identified = identifiedTracks.size;
-    options.onTracks?.(tracks);
+    stats.identified = markedByTrack.size;
+
+    // Prune bookkeeping for tracks that no longer exist
+    if (markedByTrack.size > 0) {
+      const live = new Set(tracks.map(t => t.id));
+      for (const id of markedByTrack.keys()) if (!live.has(id)) markedByTrack.delete(id);
+    }
+
+    // Only surface freshly-seen tracks so overlay boxes never linger
+    options.onTracks?.(tracks.filter(t => t.missed === 0));
+
 
     // Queue only NEW faces for recognition
     for (const t of tracker.pendingRecognition()) {
@@ -355,8 +372,10 @@ export function createRecognitionEngine(
         recognizedAt: Date.now(),
       });
 
-      if (!identifiedTracks.has(track.id)) {
-        identifiedTracks.add(track.id);
+      // Fire per *person*, not per track id: a track can be reused by the next
+      // person standing in the same spot, and identities re-verify on TTL.
+      if (markedByTrack.get(track.id) !== match.userId) {
+        markedByTrack.set(track.id, match.userId);
         const identified: IdentifiedFace = {
           trackId: track.id,
           userId: match.userId,
@@ -368,15 +387,24 @@ export function createRecognitionEngine(
         };
         options.onIdentified?.(identified);
 
-        // Thread 4: database updates run off the recognition path
+        // Thread 4: database updates run off the recognition path.
+        // A hard timeout guarantees one slow write can never occupy a queue slot
+        // and stall attendance marking for everybody behind it.
         if (options.markAttendance) {
           const handler = options.markAttendance;
           enqueueWrite({
-            key: `attendance:${match.userId}`,
+            key: `attendance:${match.userId}:${Math.floor(Date.now() / 30_000)}`,
             payload: identified,
-            run: face => handler(face),
+            run: face =>
+              Promise.race([
+                handler(face),
+                new Promise<void>((_, reject) =>
+                  setTimeout(() => reject(new Error('attendance write timed out')), 15_000),
+                ),
+              ]),
           });
         }
+
       }
       publishStats();
     } catch (err) {
@@ -427,7 +455,7 @@ export function createRecognitionEngine(
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
       queue = [];
-      identifiedTracks.clear();
+      markedByTrack.clear();
       tracker.reset();
     },
     isRunning: () => running,

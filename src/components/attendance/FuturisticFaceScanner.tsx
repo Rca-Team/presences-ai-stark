@@ -118,6 +118,7 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
   const hasCompletedFirstRecognitionRef = useRef(false);
   const processedEmbeddingsRef = useRef<Array<{ descriptor: Float32Array; employeeId?: string; ts: number }>>([]);
   const autoMarkedUsersRef = useRef<Map<string, number>>(new Map());
+  const cutoffCacheRef = useRef<{ value: { hour: number; minute: number }; at: number } | null>(null);
   const [autoMarkedLog, setAutoMarkedLog] = useState<AutoMarkedEntry[]>([]);
   
 
@@ -299,13 +300,16 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     };
 
     const engine = createRecognitionEngine(() => webcamRef.current?.video ?? null, {
-      detectFps: 9,
+      detectFps: 10,
       detectionWidth: 640,
       maxConcurrentJobs: 2,
+      identityTtlMs: 3000,
+      maxMissed: 3,
       onTracks: (tracks) => {
-        setDetectedFaces(tracks.map(t => ({ box: { ...t.box } })));
-        setFaceCount(tracks.length);
+        // Boxes live on the canvas overlay; React state only tracks the count so
+        // the camera loop never triggers a full re-render per frame.
         drawTracks(tracks);
+        setFaceCount((prev) => (prev === tracks.length ? prev : tracks.length));
       },
       // Runs once per newly identified person — UI only, never blocks detection.
       onIdentified: (face) => {
@@ -327,7 +331,12 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
           const video = webcamRef.current?.video;
           const crop = video ? captureFaceArea(video, face.box) : null;
 
-          const cutoffTime = await getAttendanceCutoffTime();
+          // Cutoff is cached for 5 minutes — no per-student network round-trip
+          let cutoffTime = cutoffCacheRef.current?.value;
+          if (!cutoffTime || Date.now() - (cutoffCacheRef.current?.at ?? 0) > 300_000) {
+            cutoffTime = await getAttendanceCutoffTime();
+            cutoffCacheRef.current = { value: cutoffTime, at: Date.now() };
+          }
           const status: 'present' | 'late' = isPastCutoffTime(cutoffTime) ? 'late' : 'present';
 
           const outcome = await recordAttendance(
