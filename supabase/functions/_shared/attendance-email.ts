@@ -220,8 +220,11 @@ export async function hostSnapshot(
       upsert: true,
     });
     if (error) return null;
-    const { data } = admin.storage.from('attendance-snapshots').getPublicUrl(path);
-    return data?.publicUrl || null;
+    // Bucket is private: hand the email a long-lived signed URL so the photo renders in inboxes.
+    const { data } = await admin.storage
+      .from('attendance-snapshots')
+      .createSignedUrl(path, 60 * 60 * 24 * 365);
+    return data?.signedUrl || null;
   } catch {
     return null;
   }
