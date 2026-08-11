@@ -299,13 +299,16 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     };
 
     const engine = createRecognitionEngine(() => webcamRef.current?.video ?? null, {
-      detectFps: 9,
+      detectFps: 10,
       detectionWidth: 640,
       maxConcurrentJobs: 2,
+      identityTtlMs: 3000,
+      maxMissed: 3,
       onTracks: (tracks) => {
-        setDetectedFaces(tracks.map(t => ({ box: { ...t.box } })));
-        setFaceCount(tracks.length);
+        // Boxes live on the canvas overlay; React state only tracks the count so
+        // the camera loop never triggers a full re-render per frame.
         drawTracks(tracks);
+        setFaceCount((prev) => (prev === tracks.length ? prev : tracks.length));
       },
       // Runs once per newly identified person — UI only, never blocks detection.
       onIdentified: (face) => {
