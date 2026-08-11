@@ -118,6 +118,7 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
   const hasCompletedFirstRecognitionRef = useRef(false);
   const processedEmbeddingsRef = useRef<Array<{ descriptor: Float32Array; employeeId?: string; ts: number }>>([]);
   const autoMarkedUsersRef = useRef<Map<string, number>>(new Map());
+  const cutoffCacheRef = useRef<{ value: string; at: number } | null>(null);
   const [autoMarkedLog, setAutoMarkedLog] = useState<AutoMarkedEntry[]>([]);
   
 
