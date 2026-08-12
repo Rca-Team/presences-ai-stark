@@ -23,6 +23,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 import { getCutoffTime, isPastCutoffTime, getAttendanceCutoffTime } from '@/services/attendance/AttendanceSettingsService';
 import * as faceapi from 'face-api.js';
+import { loadNet } from '@/services/face-recognition/NetLoaderService';
 import { createRecognitionEngine } from '@/services/face-recognition/RealtimeRecognitionEngine';
 import type { FaceTrack } from '@/services/face-recognition/FaceTrackerService';
 import {
@@ -217,18 +218,17 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
 
   useEffect(() => {
     const initModels = async () => {
-      if (!areModelsLoaded()) {
-        await loadModels();
+      try {
+        if (!areModelsLoaded()) await loadModels();
         setModelsLoaded(true);
+      } catch (e) {
+        console.error('Face model load failed:', e);
       }
-      // Pre-load SSD MobileNetV1 so first scan doesn't timeout
-      if (!faceapi.nets.ssdMobilenetv1?.isLoaded) {
-        try {
-          await faceapi.nets.ssdMobilenetv1.load('/models');
-          console.log('SSD MobileNetV1 pre-loaded for scanning');
-        } catch (e) {
-          console.warn('SSD MobileNetV1 pre-load failed, will use TinyFaceDetector', e);
-        }
+      // Pre-load the detector via the shared loader (deduped, retried)
+      try {
+        await loadNet('ssdMobilenetv1');
+      } catch (e) {
+        console.warn('SSD MobileNetV1 pre-load failed, will use TinyFaceDetector', e);
       }
     };
     initModels();

@@ -21,6 +21,7 @@
 
 import * as faceapi from 'face-api.js';
 import { loadModels, areModelsLoaded } from './ModelService';
+import { loadNet } from './NetLoaderService';
 import { getAllTrainedDescriptors } from './ProgressiveTrainingService';
 import { buildVectorIndex, searchVectorIndex, getVectorIndexStats } from './VectorIndexService';
 import { createFaceTracker, type FaceTrack, type Box } from './FaceTrackerService';
@@ -441,7 +442,7 @@ export function createRecognitionEngine(
       running = true;
       void (async () => {
         if (!areModelsLoaded()) await loadModels();
-        if (!faceapi.nets.tinyFaceDetector.isLoaded) await faceapi.nets.tinyFaceDetector.load('/models');
+        await loadNet('tinyFaceDetector');
         await initializeGPU().catch(() => undefined);
         await initializeWorkerPool().catch(() => undefined);
         void initializeOnnxEmbedder().catch(() => undefined);
