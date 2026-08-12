@@ -35,33 +35,39 @@ export async function fetchTeacherCategories(userId: string): Promise<string[]> 
   const db = supabase as any;
   const categories = new Set<string>();
 
-  const newShape = await db
-    .from('teacher_permissions')
-    .select('permission_key, is_enabled')
-    .eq('teacher_id', userId);
+  const addFromRow = (row: any) => {
+    const direct = normalizeCategory(String(row?.category || ''));
+    if (direct) {
+      categories.add(direct);
+      return;
+    }
+    const cls = String(row?.class || '').trim();
+    const sec = String(row?.section || '').trim();
+    const combined = normalizeCategory(`${cls}-${sec}`);
+    if (combined) categories.add(combined);
+  };
 
-  if (!newShape.error && Array.isArray(newShape.data)) {
-    newShape.data.forEach((row: any) => {
-      if (row?.is_enabled === false) return;
-      const category = categoryFromPermissionKey(String(row?.permission_key || ''));
-      if (category) categories.add(category);
-    });
+  const permRows = await db
+    .from('teacher_permissions')
+    .select('category, class, section, teacher_id, user_id')
+    .or(`teacher_id.eq.${userId},user_id.eq.${userId}`);
+
+  if (!permRows.error && Array.isArray(permRows.data)) {
+    permRows.data.forEach(addFromRow);
   }
 
-  const legacyShape = await db
-    .from('teacher_permissions')
-    .select('category')
-    .eq('user_id', userId);
+  const classRows = await db
+    .from('class_teachers')
+    .select('category, class, section')
+    .eq('teacher_id', userId);
 
-  if (!legacyShape.error && Array.isArray(legacyShape.data)) {
-    legacyShape.data.forEach((row: any) => {
-      const category = normalizeCategory(String(row?.category || ''));
-      if (category) categories.add(category);
-    });
+  if (!classRows.error && Array.isArray(classRows.data)) {
+    classRows.data.forEach(addFromRow);
   }
 
   return [...categories];
 }
+
 
 export async function hasTeacherAccess(userId: string): Promise<boolean> {
   const db = supabase as any;
