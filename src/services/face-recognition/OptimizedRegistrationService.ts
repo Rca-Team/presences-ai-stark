@@ -1,4 +1,5 @@
 import * as faceapi from 'face-api.js';
+import { loadNets } from './NetLoaderService';
 
 let modelsLoaded = false;
 let modelsLoading = false;
@@ -27,12 +28,7 @@ export const loadRegistrationModels = async (): Promise<boolean> => {
       console.log('Loading registration models...');
       
       // Load models in parallel for speed
-      await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-        faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-        faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-        faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-      ]);
+      await loadNets(['ssdMobilenetv1', 'tinyFaceDetector', 'faceLandmark68Net', 'faceRecognitionNet']);
 
       modelsLoaded = true;
       console.log('Registration models loaded successfully');

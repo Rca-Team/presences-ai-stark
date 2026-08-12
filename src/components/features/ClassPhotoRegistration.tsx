@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as faceapi from 'face-api.js';
+import { loadNets } from '@/services/face-recognition/NetLoaderService';
 import { 
   Upload, Users, Camera, Check, X, Edit2, 
   RefreshCw, Sparkles, UserPlus, Image
@@ -41,11 +42,7 @@ const ClassPhotoRegistration = () => {
   React.useEffect(() => {
     const loadModels = async () => {
       try {
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-          faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-        ]);
+        await loadNets(['ssdMobilenetv1', 'faceLandmark68Net', 'faceRecognitionNet']);
         setModelsLoaded(true);
       } catch (error) {
         console.error('Error loading models:', error);

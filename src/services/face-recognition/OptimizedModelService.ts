@@ -1,9 +1,12 @@
 import * as faceapi from 'face-api.js';
 import { getFaceModelSettings, type FaceDetectionModel } from './FaceModelSettingsService';
+import { loadNets } from './NetLoaderService';
 
 // Optimized model loading for faster performance
 let optimizedModelsLoaded = false;
+let optimizedLoadPromise: Promise<void> | null = null;
 let isLoadingOptimizedModels = false;
+
 let modelLoadingFailed = false;
 let failureCount = 0;
 let lastFailureTime = 0;
@@ -33,97 +36,27 @@ export interface OptimizedDetectionOptions {
 
 // Fast model loading with circuit breaker pattern
 export async function loadOptimizedModels(): Promise<void> {
-  if (optimizedModelsLoaded) {
-    console.log('Optimized models already loaded');
-    return;
-  }
+  if (optimizedModelsLoaded) return;
+  if (optimizedLoadPromise) return optimizedLoadPromise;
 
-  // Circuit breaker: check if we've failed too many times recently
-  const now = Date.now();
-  if (modelLoadingFailed && failureCount >= MAX_RETRIES) {
-    if (now - lastFailureTime < RETRY_COOLDOWN) {
-      throw new Error(`Model loading failed ${failureCount} times. Please wait ${Math.ceil((RETRY_COOLDOWN - (now - lastFailureTime)) / 1000)} seconds before retrying.`);
-    } else {
-      // Reset after cooldown
-      modelLoadingFailed = false;
-      failureCount = 0;
+  optimizedLoadPromise = (async () => {
+    // Shared loader: dedupes with ModelService / the realtime engine so the
+    // same weight files are never fetched twice in parallel on a cold start.
+    try {
+      await loadNets(['ssdMobilenetv1', 'faceLandmark68Net', 'faceRecognitionNet']);
+    } catch (primaryError) {
+      console.warn('Primary nets failed, trying lighter fallbacks:', primaryError);
+      await loadNets(['tinyFaceDetector', 'faceLandmark68TinyNet', 'faceRecognitionNet']);
     }
-  }
-
-  if (isLoadingOptimizedModels) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        clearInterval(checkLoaded);
-        reject(new Error('Model loading timeout'));
-      }, 30000); // 30 second timeout
-
-      const checkLoaded = setInterval(() => {
-        if (optimizedModelsLoaded) {
-          clearInterval(checkLoaded);
-          clearTimeout(timeout);
-          resolve();
-        } else if (!isLoadingOptimizedModels && !optimizedModelsLoaded && modelLoadingFailed) {
-          clearInterval(checkLoaded);
-          clearTimeout(timeout);
-          reject(new Error('Optimized model loading failed'));
-        }
-      }, 100);
-    });
-  }
-
-  isLoadingOptimizedModels = true;
-
-  try {
-    console.log('Loading optimized face recognition models with high-accuracy models...');
-    
-    // Use more powerful models for better accuracy (SSD MobileNetV1 + full landmarks)
-    const preferredModels = [
-      { net: faceapi.nets.ssdMobilenetv1, name: 'SSD_MobileNetV1', fallback: faceapi.nets.tinyFaceDetector },
-      { net: faceapi.nets.faceLandmark68Net, name: 'FaceLandmark68', fallback: faceapi.nets.faceLandmark68TinyNet },
-      { net: faceapi.nets.faceRecognitionNet, name: 'FaceRecognition', fallback: null }
-    ];
-
-    // Load models with fallback mechanism
-    for (const model of preferredModels) {
-      if (!model.net.isLoaded) {
-        try {
-          console.log(`Loading ${model.name}...`);
-          await model.net.load('/models');
-          console.log(`${model.name} loaded successfully`);
-        } catch (modelError) {
-          console.warn(`Failed to load ${model.name}:`, modelError);
-          
-          // Try fallback if available
-          if (model.fallback && !model.fallback.isLoaded) {
-            console.log(`Trying fallback model for ${model.name}...`);
-            try {
-              await model.fallback.load('/models');
-              console.log(`Fallback model loaded for ${model.name}`);
-            } catch (fallbackError) {
-              console.error(`Both primary and fallback models failed for ${model.name}:`, fallbackError);
-              throw new Error(`Critical model ${model.name} failed to load`);
-            }
-          } else {
-            throw modelError;
-          }
-        }
-      }
-    }
-
     optimizedModelsLoaded = true;
-    isLoadingOptimizedModels = false;
-    modelLoadingFailed = false;
-    failureCount = 0;
     console.log('Optimized models loaded successfully');
-  } catch (error) {
-    isLoadingOptimizedModels = false;
-    modelLoadingFailed = true;
-    failureCount++;
-    lastFailureTime = Date.now();
-    console.error(`Error loading optimized models (attempt ${failureCount}):`, error);
-    throw new Error(`Failed to load face recognition models: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  })().finally(() => {
+    optimizedLoadPromise = null;
+  });
+
+  return optimizedLoadPromise;
 }
+
 
 // Fast face detection with optimized parameters
 export async function detectFacesOptimized(
