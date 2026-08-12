@@ -24,6 +24,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { descriptorToString, stringToDescriptor } from './ModelService';
 import { uploadImage } from './StorageService';
 import { uploadAttendanceTrainingImage } from './TrainingDataStorageService';
+import { getGalleryScope } from './GalleryScopeService';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
