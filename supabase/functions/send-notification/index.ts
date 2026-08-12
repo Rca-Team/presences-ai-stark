@@ -73,38 +73,53 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 
   /*
-   * 1. Direct Resend
+   * 1. Resend — direct (re_ key) or through the Lovable connector gateway.
    */
-  if (resendApiKey && resendApiKey.startsWith("re_")) {
-    try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
+  if (resendApiKey) {
+    const direct = resendApiKey.startsWith("re_");
+    const url = direct
+      ? "https://api.resend.com/emails"
+      : "https://connector-gateway.lovable.dev/resend/emails";
+    const headers: Record<string, string> = direct
+      ? { Authorization: `Bearer ${resendApiKey}`, "Content-Type": "application/json" }
+      : {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "X-Connection-Api-Key": resendApiKey,
           "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: FROM_ADDRESS,
-          to: [recipient],
-          subject: subject || "School Notification",
-          html: html || "<p>School notification</p>",
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (response.ok) {
-        return {
-          ok: true,
-          id: data?.id || null,
         };
-      }
 
-      console.error("Resend error:", data);
-    } catch (error) {
-      console.error("Resend exception:", error);
+    if (direct || lovableApiKey) {
+      const fromCandidates = [FROM_ADDRESS, "School Alerts <onboarding@resend.dev>"];
+
+      for (const from of fromCandidates) {
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              from,
+              to: [recipient],
+              subject: subject || "School Notification",
+              html: html || "<p>School notification</p>",
+            }),
+          });
+
+          const data = await response.json().catch(() => ({}));
+
+          if (response.ok) {
+            return { ok: true, id: data?.id || null };
+          }
+
+          console.error(`Resend error [${response.status}] from=${from}:`, JSON.stringify(data));
+          lastEmailError = data?.message || data?.error || `Resend failed (${response.status})`;
+        } catch (error) {
+          console.error("Resend exception:", error);
+          lastEmailError = error instanceof Error ? error.message : "Resend request failed";
+        }
+      }
     }
   }
+
 
   /*
    * 2. Gmail through Lovable connector
