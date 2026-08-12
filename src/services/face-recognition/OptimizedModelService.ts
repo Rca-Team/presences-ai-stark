@@ -1,9 +1,12 @@
 import * as faceapi from 'face-api.js';
 import { getFaceModelSettings, type FaceDetectionModel } from './FaceModelSettingsService';
+import { loadNets } from './NetLoaderService';
 
 // Optimized model loading for faster performance
 let optimizedModelsLoaded = false;
+let optimizedLoadPromise: Promise<void> | null = null;
 let isLoadingOptimizedModels = false;
+
 let modelLoadingFailed = false;
 let failureCount = 0;
 let lastFailureTime = 0;
