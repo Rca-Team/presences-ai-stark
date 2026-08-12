@@ -20,97 +20,60 @@
 import * as faceapi from 'face-api.js';
 import { alignFace, isFaceFrontal } from './FaceAlignmentService';
 import { scoreFaceQuality } from './FaceQualityService';
+import { loadNets, areNetsLoaded, type NetName } from './NetLoaderService';
 
 // ─── state ───────────────────────────────────────────────────────────────────
 
-let modelsLoaded    = false;
-let isLoadingModels = false;
-let gateModelsLoaded = false;
-let loadAttempts    = 0;
-const MAX_LOAD_ATTEMPTS = 5;
+const CORE_NETS: NetName[] = [
+  'ssdMobilenetv1',
+  'tinyFaceDetector',
+  'faceLandmark68Net',
+  'faceRecognitionNet',
+];
+const GATE_NETS: NetName[] = ['ssdMobilenetv1', 'faceLandmark68Net'];
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+let loadPromise: Promise<void> | null = null;
 
 // ─── model loading ───────────────────────────────────────────────────────────
 
+/**
+ * Load the core face-api nets. All callers share ONE promise — no duplicate
+ * weight fetches, no polling waiter that can time out while another caller is
+ * still downloading the same shards.
+ */
 export async function loadModels(): Promise<void> {
-  if (modelsLoaded) return;
+  if (areNetsLoaded(CORE_NETS)) return;
+  if (loadPromise) return loadPromise;
 
-  if (isLoadingModels) {
-    return new Promise((resolve, reject) => {
-      const check = setInterval(() => {
-        if (modelsLoaded)                        { clearInterval(check); resolve(); }
-        else if (!isLoadingModels && !modelsLoaded) { clearInterval(check); reject(new Error('Model loading failed')); }
-      }, 500);
+  console.log('Loading face recognition models…');
+  loadPromise = loadNets(CORE_NETS)
+    .then(() => {
+      console.log('All face-api.js models loaded successfully');
+    })
+    .finally(() => {
+      loadPromise = null;
     });
-  }
 
-  isLoadingModels = true;
-  loadAttempts++;
-  console.log(`Loading face recognition models (attempt ${loadAttempts}/${MAX_LOAD_ATTEMPTS})…`);
-
-  const MODEL_PATHS = [
-    { net: faceapi.nets.ssdMobilenetv1,    name: 'SSD MobileNetV1'  },
-    { net: faceapi.nets.tinyFaceDetector,  name: 'TinyFaceDetector' },
-    { net: faceapi.nets.faceLandmark68Net, name: 'FaceLandmark68'   },
-    { net: faceapi.nets.faceRecognitionNet, name: 'FaceRecognition'  },
-  ];
-
-  try {
-    // Verify models directory is accessible
-    const probe = await fetch('/models/ssd_mobilenetv1_model-weights_manifest.json');
-    if (!probe.ok) throw new Error(`Models directory not accessible: ${probe.status}`);
-    const text = await probe.text();
-    JSON.parse(text); // validate JSON
-
-    for (const model of MODEL_PATHS) {
-      if (model.net.isLoaded) continue;
-      await delay(200);
-      console.log(`  Loading ${model.name}…`);
-      await model.net.load('/models');
-      if (!model.net.isLoaded) throw new Error(`${model.name} reported not loaded after load()`);
-    }
-
-    modelsLoaded    = true;
-    isLoadingModels = false;
-    loadAttempts    = 0;
-    console.log('All face-api.js models loaded successfully');
-  } catch (err) {
-    isLoadingModels = false;
-    console.error('Model loading error:', err);
-
-    if (loadAttempts < MAX_LOAD_ATTEMPTS) {
-      const backoff = Math.min(1000 * Math.pow(2, loadAttempts - 1), 10_000);
-      console.log(`Retrying in ${backoff} ms…`);
-      await delay(backoff);
-      return loadModels();
-    }
-
-    loadAttempts = 0;
-    throw new Error(`Failed to load face-api.js models after ${MAX_LOAD_ATTEMPTS} attempts: ${err}`);
-  }
+  return loadPromise;
 }
 
-export function areModelsLoaded(): boolean { return modelsLoaded; }
+export function areModelsLoaded(): boolean {
+  return areNetsLoaded(CORE_NETS);
+}
 
 export async function forceReloadModels(): Promise<void> {
-  modelsLoaded    = false;
-  isLoadingModels = false;
-  loadAttempts    = 0;
+  loadPromise = null;
   return loadModels();
 }
 
 export async function loadGateDetectionModels(): Promise<void> {
-  if (gateModelsLoaded) return;
-  if (!faceapi.nets.ssdMobilenetv1.isLoaded)    await faceapi.nets.ssdMobilenetv1.load('/models');
-  if (!faceapi.nets.faceLandmark68Net.isLoaded) await faceapi.nets.faceLandmark68Net.load('/models');
-  gateModelsLoaded = true;
+  await loadNets(GATE_NETS);
 }
 
 export function areGateDetectionModelsLoaded(): boolean {
-  return gateModelsLoaded ||
-    (faceapi.nets.ssdMobilenetv1.isLoaded && faceapi.nets.faceLandmark68Net.isLoaded);
+  return areNetsLoaded(GATE_NETS);
 }
+
 
 // ─── serialisation helpers ───────────────────────────────────────────────────
 
