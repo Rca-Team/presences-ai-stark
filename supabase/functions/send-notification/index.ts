@@ -63,6 +63,7 @@ function normalizeEmail(email?: string | null): string | null {
 ------------------------------------------------------- */
 
 async function sendEmail(to: string, subject: string, html: string) {
+  let lastEmailError: string | null = null;
   const recipient = normalizeEmail(to);
 
   if (!recipient) {
