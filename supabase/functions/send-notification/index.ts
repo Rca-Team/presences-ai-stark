@@ -177,8 +177,9 @@ async function sendEmail(to: string, subject: string, html: string) {
 
   return {
     ok: false,
-    error: "No email provider is configured",
+    error: lastEmailError || "No email provider is configured",
   };
+
 }
 
 /* -------------------------------------------------------
