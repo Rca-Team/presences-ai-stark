@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Camera, Users, CheckCircle, XCircle, AlertCircle, Loader2, Sparkles, SwitchCamera, RotateCcw } from 'lucide-react';
 import * as faceapi from 'face-api.js';
+import { loadNets } from '@/services/face-recognition/NetLoaderService';
 import { recognizeFace, recordAttendance } from '@/services/face-recognition/RecognitionService';
 import { getFaceDescriptor } from '@/services/face-recognition/ModelService';
 
@@ -45,7 +46,7 @@ const MultipleFaceAttendanceCapture = () => {
         console.log('Loading face-api.js models...');
         
         // Load TinyFaceDetector for fast preview
-        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        await loadNets(['tinyFaceDetector']);
         
         if (isMounted) {
           setPreviewModelReady(true);
@@ -54,11 +55,7 @@ const MultipleFaceAttendanceCapture = () => {
         }
 
         // Load full recognition models
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri('/models'),
-          faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-          faceapi.nets.faceRecognitionNet.loadFromUri('/models')
-        ]);
+        await loadNets(['ssdMobilenetv1', 'faceLandmark68Net', 'faceRecognitionNet']);
 
         if (isMounted) {
           setModelStatus('ready');
