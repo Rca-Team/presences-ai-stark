@@ -176,9 +176,15 @@ export async function getAllTrainedDescriptors(): Promise<Map<string, {
 
     if (error || !data?.length) return new Map();
 
+    // Class-teacher accounts only match against their own class roster.
+    const scope = await getGalleryScope();
+    const rows = scope.userIds ? data.filter((r: any) => scope.userIds!.has(r.user_id)) : data;
+    if (!rows.length) return new Map();
+
     // Group by user
     const grouped = new Map<string, { descriptors: Float32Array[]; userName: string; studentId: string | null }>();
-    for (const rec of data) {
+    for (const rec of rows) {
+
       const desc = parseStoredDescriptor(rec.descriptor);
       if (!desc) continue;
 
