@@ -97,7 +97,7 @@ export async function getFaceDescriptor(
   imageElement: HTMLImageElement | HTMLVideoElement,
   minFaceSize = 80
 ): Promise<Float32Array | null> {
-  if (!modelsLoaded) await loadModels();
+  if (!areModelsLoaded()) await loadModels();
 
   // Wait for media to be ready
   if (imageElement instanceof HTMLVideoElement) {
@@ -165,7 +165,7 @@ export async function getAlignedFaceDescriptor(
   minFaceSize = 80,
   qualityGate = 0.30
 ): Promise<AlignedDescriptorResult | null> {
-  if (!modelsLoaded) await loadModels();
+  if (!areModelsLoaded()) await loadModels();
 
   try {
     const opts = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
