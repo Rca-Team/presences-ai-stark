@@ -61,9 +61,17 @@ serve(async (req) => {
       userId = created.user!.id;
     }
 
-    // Profile
+    // Profile (role + primary class scope)
+    const primary = categories[0] ? categories[0].split('-') : null;
     await admin.from('profiles').upsert(
-      { user_id: userId, display_name: displayName },
+      {
+        user_id: userId,
+        display_name: displayName,
+        full_name: displayName,
+        email,
+        role: 'teacher',
+        ...(primary ? { class: primary[0], section: primary[1], category: categories[0] } : {}),
+      },
       { onConflict: 'user_id' }
     );
 
@@ -76,21 +84,46 @@ serve(async (req) => {
       await admin.from('user_roles').upsert({ user_id: userId, role: 'user' as any }, { onConflict: 'user_id,role' });
     }
 
-    // Teacher permissions
-    for (const cat of categories) {
-      await admin.from('teacher_permissions').upsert(
-        { teacher_id: userId, permission_key: `class_access:${cat}`, is_enabled: true },
-        { onConflict: 'teacher_id,permission_key' as any }
-      );
-      // class_teachers assignment (best effort)
-      const [cls, sec] = cat.split('-');
-      await admin.from('class_teachers').upsert(
-        { teacher_id: userId, teacher_name: displayName, class: cls, section: sec },
-        { onConflict: 'teacher_id,class,section' as any }
-      );
+    // Class scoping — rewrite assignments from scratch so re-running is idempotent.
+    const warnings: string[] = [];
+    await admin.from('teacher_permissions').delete().eq('teacher_id', userId);
+    await admin.from('class_teachers').delete().eq('teacher_id', userId);
+
+    if (categories.length > 0) {
+      const permRows = categories.map((cat) => {
+        const [cls, sec] = cat.split('-');
+        return {
+          teacher_id: userId,
+          user_id: userId,
+          class: cls,
+          section: sec,
+          category: cat,
+          can_take_attendance: true,
+          can_edit_timetable: true,
+          can_export_reports: true,
+        };
+      });
+      const permIns = await admin.from('teacher_permissions').insert(permRows);
+      if (permIns.error) warnings.push(`permissions: ${permIns.error.message}`);
+
+      const classRows = categories.map((cat) => {
+        const [cls, sec] = cat.split('-');
+        return {
+          class: cls,
+          section: sec,
+          category: cat,
+          teacher_id: userId,
+          teacher_name: displayName,
+          teacher_email: email,
+          role: 'class_teacher',
+        };
+      });
+      const classIns = await admin.from('class_teachers').insert(classRows);
+      if (classIns.error) warnings.push(`class_teachers: ${classIns.error.message}`);
     }
 
-    return json({ ok: true, user_id: userId, email, categories });
+    return json({ ok: true, user_id: userId, email, categories, warnings });
+
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message || 'Server error' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
