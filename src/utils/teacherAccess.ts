@@ -99,53 +99,55 @@ export async function hasTeacherAccess(userId: string): Promise<boolean> {
 export async function saveTeacherCategories(userId: string, categories: string[]): Promise<void> {
   const db = supabase as any;
   const normalized = [...new Set(categories.map(c => normalizeCategory(c)).filter(Boolean))] as string[];
-  let wrote = false;
-  let lastError: any = null;
 
-  const newRows = normalized.map(category => ({
-    teacher_id: userId,
-    permission_key: toClassAccessPermission(category),
-    is_enabled: true,
-  }));
+  await db.from('teacher_permissions').delete().or(`teacher_id.eq.${userId},user_id.eq.${userId}`);
+  await db.from('class_teachers').delete().eq('teacher_id', userId);
 
-  const newDelete = await db.from('teacher_permissions').delete().eq('teacher_id', userId);
-  if (!newDelete.error) {
-    if (newRows.length > 0) {
-      const newInsert = await db.from('teacher_permissions').insert(newRows);
-      if (newInsert.error) {
-        lastError = newInsert.error;
-      } else {
-        wrote = true;
-      }
-    } else {
-      wrote = true;
-    }
-  } else {
-    lastError = newDelete.error;
+  if (normalized.length === 0) return;
+
+  let teacherName = '';
+  let teacherEmail = '';
+  const profile = await db
+    .from('profiles')
+    .select('display_name, full_name, email')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (profile?.data) {
+    teacherName = profile.data.display_name || profile.data.full_name || '';
+    teacherEmail = profile.data.email || '';
   }
 
-  const legacyRows = normalized.map(category => ({
-    user_id: userId,
-    category,
-    can_take_attendance: true,
-    can_view_reports: true,
-  }));
+  const permRows = normalized.map(category => {
+    const [cls, sec] = category.split('-');
+    return {
+      teacher_id: userId,
+      user_id: userId,
+      class: cls,
+      section: sec,
+      category,
+      can_take_attendance: true,
+      can_edit_timetable: true,
+      can_export_reports: true,
+    };
+  });
 
-  const legacyDelete = await db.from('teacher_permissions').delete().eq('user_id', userId);
-  if (!legacyDelete.error) {
-    if (legacyRows.length > 0) {
-      const legacyInsert = await db.from('teacher_permissions').insert(legacyRows);
-      if (legacyInsert.error) {
-        if (!wrote) lastError = legacyInsert.error;
-      } else {
-        wrote = true;
-      }
-    } else {
-      wrote = true;
-    }
-  } else if (!wrote) {
-    lastError = legacyDelete.error;
-  }
+  const permInsert = await db.from('teacher_permissions').insert(permRows);
 
-  if (!wrote && lastError) throw lastError;
+  const classRows = normalized.map(category => {
+    const [cls, sec] = category.split('-');
+    return {
+      class: cls,
+      section: sec,
+      category,
+      teacher_id: userId,
+      teacher_name: teacherName,
+      teacher_email: teacherEmail,
+      role: 'class_teacher',
+    };
+  });
+
+  const classInsert = await db.from('class_teachers').insert(classRows);
+
+  if (permInsert.error && classInsert.error) throw permInsert.error;
 }
+
