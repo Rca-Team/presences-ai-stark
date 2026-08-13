@@ -199,7 +199,6 @@ export function createRecognitionEngine(
     maxMissed: options.maxMissed ?? 4,
   });
   const detectCanvas = document.createElement('canvas');
-  const cropCanvas = document.createElement('canvas');
 
   let running = false;
   let rafId: number | null = null;
@@ -292,6 +291,10 @@ export function createRecognitionEngine(
       void recognizeTrack(video, track).finally(() => {
         activeJobs--;
         tracker.markPending(trackId, false);
+        // Keep draining immediately when a recognition slot becomes free.
+        // Waiting for the next detection pass can strand queued students when
+        // the camera frame is briefly static or throttled by the browser.
+        if (running && queue.length > 0) void pumpQueue(video);
       });
     }
   }
@@ -309,6 +312,11 @@ export function createRecognitionEngine(
         return;
       }
 
+      // Each concurrent recognition job needs its own crop canvas. Sharing one
+      // canvas lets another student's frame overwrite pixels while an async
+      // embedding is still reading them, causing intermittent wrong/unknown
+      // results after several faces have entered the queue.
+      const cropCanvas = document.createElement('canvas');
       cropCanvas.width = 224;
       cropCanvas.height = 224;
       const cctx = cropCanvas.getContext('2d');
