@@ -454,7 +454,9 @@ export async function recordAttendance(
   captureMode: 'ai-scan' | 'qr-scan' | 'gate-mode' = 'ai-scan'
 ): Promise<any> {
   const sourceHint = deviceInfo?.source || deviceInfo?.metadata?.source;
-  const shouldAutoNotifyParent = sourceHint !== 'qr-scanner';
+  const shouldAutoNotifyParent =
+    sourceHint !== 'qr-scanner' &&
+    deviceInfo?.metadata?.suppress_auto_notification !== true;
   const MIN_ATTENDANCE_CONFIDENCE = 0.65;
   const isManual =
     Boolean(deviceInfo?.metadata?.manual_confirmation) ||

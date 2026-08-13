@@ -349,9 +349,16 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
                 source: 'live-face-id',
                 track_id: face.trackId,
                 distance: Number(face.distance.toFixed(4)),
+                // The real-time engine has already passed its strict distance
+                // and ambiguity checks. Do not apply a second, differently
+                // calibrated confidence gate that can show "recognized" while
+                // silently refusing to mark the student.
+                force_attendance_save: true,
+                // runAutoFollowUps owns the single parent notification for this
+                // path; recordAttendance must not send a duplicate.
+                suppress_auto_notification: true,
               },
-            },
-            crop?.dataUrl
+            }
           );
 
           if (outcome?.skipped) {

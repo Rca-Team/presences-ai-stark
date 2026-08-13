@@ -44,6 +44,10 @@ function notify() {
   listeners.forEach(fn => fn(depth));
 }
 
+function hasPendingKey(key: string): boolean {
+  return queue.some(job => job.key === key);
+}
+
 export function enqueueWrite<T>(job: WriteJob<T>): boolean {
   const now = Date.now();
   const last = seen.get(job.key);
@@ -92,7 +96,10 @@ async function runJob(job: WriteJob): Promise<void> {
     if (attempts < opts.maxAttempts) {
       const backoff = Math.min(500 * 2 ** (attempts - 1), 8000);
       setTimeout(() => {
-        queue.push({ ...job, attempts });
+        // A later recognition may already have queued a fresh write for this
+        // student. Keep one retry only, preventing a slow network from growing
+        // an unbounded queue that eventually starves new students.
+        if (!hasPendingKey(job.key)) queue.push({ ...job, attempts });
         notify();
         void drain();
       }, backoff);
