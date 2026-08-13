@@ -1224,7 +1224,7 @@ serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: "Unsupported action" }), {
+    return new Response(JSON.stringify({ error: `Unsupported action: ${action ?? "(none)"}` }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
