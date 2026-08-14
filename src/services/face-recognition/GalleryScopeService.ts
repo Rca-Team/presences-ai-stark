@@ -96,3 +96,27 @@ export async function getGalleryScope(): Promise<GalleryScope> {
 
   return inFlight;
 }
+
+/**
+ * True when a face-sample row belongs to the current scope.
+ * Unrestricted scopes (admin/principal) accept everything. Class-teacher scopes
+ * accept a row when the owner is on the roster OR the row itself carries the
+ * teacher's class/section/category — this covers students registered without a
+ * matching `profiles` entry.
+ */
+export function isRowInGalleryScope(scope: GalleryScope, row: any): boolean {
+  if (!scope.userIds) return true;
+  if (row?.user_id && scope.userIds.has(row.user_id)) return true;
+  if (scope.categories.length === 0) return false;
+
+  const rowCategory = String(row?.category || row?.metadata?.category || '').trim().toUpperCase();
+  if (rowCategory && scope.categories.some(c => c.toUpperCase() === rowCategory)) return true;
+
+  const cls = String(row?.class || '').trim();
+  const sec = String(row?.section || '').trim().toUpperCase();
+  if (cls && sec) {
+    const combined = `${cls}-${sec}`;
+    if (scope.categories.some(c => c.toUpperCase() === combined)) return true;
+  }
+  return false;
+}
