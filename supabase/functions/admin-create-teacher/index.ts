@@ -3,7 +3,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-supabase-api-version, x-supabase-client-platform, accept-profile, content-profile',
+  'Access-Control-Max-Age': '86400',
 };
 
 const normalizeCategory = (v: string) => {

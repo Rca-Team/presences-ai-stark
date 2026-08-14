@@ -24,7 +24,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { descriptorToString, stringToDescriptor } from './ModelService';
 import { uploadImage } from './StorageService';
 import { uploadAttendanceTrainingImage } from './TrainingDataStorageService';
-import { getGalleryScope } from './GalleryScopeService';
+import { getGalleryScope, isRowInGalleryScope } from './GalleryScopeService';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -112,11 +112,26 @@ export async function storeFaceSample(
       }
     }
 
+    // Inherit the student's class scope from an existing sample so class-teacher
+    // galleries keep matching this student after progressive training.
+    const { data: existingScopeRow } = await supabase
+      .from('face_descriptors')
+      .select('student_id, student_name, class, section, category')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const { error: insertErr } = await supabase.from('face_descriptors').insert({
       user_id:   userId,
       descriptor: descriptorToString(faceDescriptor),
       image_url:  imageUrl,
       label:      userName,
+      student_name: (existingScopeRow as any)?.student_name || userName,
+      student_id: (existingScopeRow as any)?.student_id ?? null,
+      class:      (existingScopeRow as any)?.class ?? null,
+      section:    (existingScopeRow as any)?.section ?? null,
+      category:   (existingScopeRow as any)?.category ?? null,
       metadata:   confidence === 1.0 ? { registration: 'true' } : {},
     });
 
@@ -172,14 +187,18 @@ export async function getAllTrainedDescriptors(): Promise<Map<string, {
   try {
     const { data, error } = await supabase
       .from('face_descriptors')
-      .select('user_id, descriptor, label, student_name, student_id, metadata')
+      .select('user_id, descriptor, label, student_name, student_id, class, section, category, metadata')
       .order('created_at', { ascending: false });
 
-    if (error || !data?.length) return new Map();
+    if (error) {
+      console.error('getAllTrainedDescriptors query failed:', error);
+      return new Map();
+    }
+    if (!data?.length) return new Map();
 
     // Class-teacher accounts only match against their own class roster.
     const scope = await getGalleryScope();
-    const rows = scope.userIds ? data.filter((r: any) => scope.userIds!.has(r.user_id)) : data;
+    const rows = scope.userIds ? data.filter((r: any) => isRowInGalleryScope(scope, r)) : data;
     if (!rows.length) return new Map();
 
     // Group by user
