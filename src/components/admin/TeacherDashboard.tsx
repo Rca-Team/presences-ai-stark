@@ -95,11 +95,11 @@ const TeacherDashboard: React.FC = () => {
         return;
       }
 
-      // Get teacher permissions
+      // Get teacher permissions (rows may be keyed by user_id or teacher_id)
       const { data: permData, error: permError } = await supabase
         .from('teacher_permissions')
         .select('*')
-        .eq('user_id', user.id);
+        .or(`user_id.eq.${user.id},teacher_id.eq.${user.id}`);
 
       if (permError) throw permError;
 
