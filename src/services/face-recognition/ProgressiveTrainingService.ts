@@ -187,14 +187,18 @@ export async function getAllTrainedDescriptors(): Promise<Map<string, {
   try {
     const { data, error } = await supabase
       .from('face_descriptors')
-      .select('user_id, descriptor, label, student_name, student_id, metadata')
+      .select('user_id, descriptor, label, student_name, student_id, class, section, category, metadata')
       .order('created_at', { ascending: false });
 
-    if (error || !data?.length) return new Map();
+    if (error) {
+      console.error('getAllTrainedDescriptors query failed:', error);
+      return new Map();
+    }
+    if (!data?.length) return new Map();
 
     // Class-teacher accounts only match against their own class roster.
     const scope = await getGalleryScope();
-    const rows = scope.userIds ? data.filter((r: any) => scope.userIds!.has(r.user_id)) : data;
+    const rows = scope.userIds ? data.filter((r: any) => isRowInGalleryScope(scope, r)) : data;
     if (!rows.length) return new Map();
 
     // Group by user
