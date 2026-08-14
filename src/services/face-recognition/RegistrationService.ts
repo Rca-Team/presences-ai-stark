@@ -229,6 +229,11 @@ export const registerFace = async (
       const studentDescriptorUserId = existingFdUserId ?? stableStudentUserId ?? uuidv4();
       descriptorUserIdUsed = studentDescriptorUserId;
 
+      // Normalised class scope — "6-A" → class "6", section "A".
+      const rawCategory = String(category || parentContactInfo?.class_section || '').trim();
+      const catMatch = rawCategory.match(/^(\d+)\s*-\s*([A-Da-d])$/);
+      const normalizedCategory = catMatch ? `${catMatch[1]}-${catMatch[2].toUpperCase()}` : (rawCategory || null);
+
       const fdPayload: Record<string, any> = {
         user_id: studentDescriptorUserId,
         descriptor: faceDescriptorString,
@@ -236,15 +241,14 @@ export const registerFace = async (
         label: name,                 // DescriptorCacheService primary name field
         student_id: studentEmployeeId,
         student_name: name,
-        class: category || parentContactInfo?.class_section || null,
-        section: null,
-        is_active: true,
+        class: catMatch ? catMatch[1] : null,
+        section: catMatch ? catMatch[2].toUpperCase() : null,
+        category: normalizedCategory,
         metadata: {
           ...metadata,
           ...parentContactInfo,
-          category: category || 'A',
+          category: normalizedCategory || 'A',
         },
-        quality_score: null,
       };
 
       let fdErr: any = null;
