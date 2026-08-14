@@ -112,11 +112,26 @@ export async function storeFaceSample(
       }
     }
 
+    // Inherit the student's class scope from an existing sample so class-teacher
+    // galleries keep matching this student after progressive training.
+    const { data: existingScopeRow } = await supabase
+      .from('face_descriptors')
+      .select('student_id, student_name, class, section, category')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const { error: insertErr } = await supabase.from('face_descriptors').insert({
       user_id:   userId,
       descriptor: descriptorToString(faceDescriptor),
       image_url:  imageUrl,
       label:      userName,
+      student_name: (existingScopeRow as any)?.student_name || userName,
+      student_id: (existingScopeRow as any)?.student_id ?? null,
+      class:      (existingScopeRow as any)?.class ?? null,
+      section:    (existingScopeRow as any)?.section ?? null,
+      category:   (existingScopeRow as any)?.category ?? null,
       metadata:   confidence === 1.0 ? { registration: 'true' } : {},
     });
 
