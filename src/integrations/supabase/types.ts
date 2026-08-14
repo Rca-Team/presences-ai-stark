@@ -487,35 +487,53 @@ export type Database = {
       }
       face_descriptors: {
         Row: {
+          category: string | null
+          class: string | null
           created_at: string
           descriptor: Json | null
           descriptors: Json | null
           id: string
           image_url: string | null
+          label: string | null
           metadata: Json | null
           quality: number | null
+          section: string | null
+          student_id: string | null
+          student_name: string | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
+          category?: string | null
+          class?: string | null
           created_at?: string
           descriptor?: Json | null
           descriptors?: Json | null
           id?: string
           image_url?: string | null
+          label?: string | null
           metadata?: Json | null
           quality?: number | null
+          section?: string | null
+          student_id?: string | null
+          student_name?: string | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
+          category?: string | null
+          class?: string | null
           created_at?: string
           descriptor?: Json | null
           descriptors?: Json | null
           id?: string
           image_url?: string | null
+          label?: string | null
           metadata?: Json | null
           quality?: number | null
+          section?: string | null
+          student_id?: string | null
+          student_name?: string | null
           updated_at?: string
           user_id?: string | null
         }
