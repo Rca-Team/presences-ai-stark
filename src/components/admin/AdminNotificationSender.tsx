@@ -176,25 +176,24 @@ const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({ avail
 
           let { data: profile } = await supabase
             .from('profiles')
-            .select('parent_email, parent_name, parent_phone, phone, metadata, display_name, email')
+            .select('parent_email, parent_name, parent_phone, phone, metadata, display_name')
             .eq('user_id', targetUserId)
             .maybeSingle();
 
           if (!profile) {
             const result = await supabase
               .from('profiles')
-              .select('parent_email, parent_name, parent_phone, phone, metadata, display_name, email')
+              .select('parent_email, parent_name, parent_phone, phone, metadata, display_name')
               .eq('id', student.id)
               .maybeSingle();
             profile = result.data;
           }
 
-          // Fall back to the student's own account email so notices are never silently dropped.
-          const parentEmail = profile?.parent_email?.trim() || (profile as any)?.email?.trim() || '';
+          const parentEmail = profile?.parent_email?.trim() || '';
           const parentPhone = (profile as any)?.parent_phone || (profile as any)?.metadata?.parent_phone || profile?.phone || '';
 
 
-          const { error } = await supabase.functions.invoke('send-notification', {
+          const { data: delivery, error } = await supabase.functions.invoke('send-notification', {
             body: {
               recipient: {
                 email: parentEmail || null,
@@ -215,6 +214,13 @@ const AdminNotificationSender: React.FC<AdminNotificationSenderProps> = ({ avail
           });
 
           if (error) throw error;
+          if (!delivery?.delivered) {
+            const channelError = delivery?.channels?.email?.error
+              || delivery?.channels?.sms?.error
+              || delivery?.channels?.whatsapp?.error
+              || 'No delivery channel succeeded';
+            throw new Error(channelError);
+          }
           successCount++;
         } catch (error) {
           console.error(`Failed to send to ${student.name}:`, error);
