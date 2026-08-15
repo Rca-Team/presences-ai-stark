@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { buildAttendanceEmail, hostSnapshot } from "../_shared/attendance-email.ts";
 
 const resendApiKey = Deno.env.get("RESEND_API_KEY");
@@ -16,12 +17,6 @@ const cronSecret = Deno.env.get("CRON_SECRET");
 const fallbackEmail = Deno.env.get("NOTIFY_FALLBACK_EMAIL");
 
 const FROM_ADDRESS = Deno.env.get("RESEND_FROM") || "School Alerts <noreply@presences.dev>";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 function normalizePhone(phone?: string | null): string | null {
   if (!phone) return null;
@@ -466,19 +461,26 @@ async function resolveParentContact(supabase: any, targetUserId?: string, studen
   }
 
   try {
-    let { data: profile } = await supabase
+    let { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("parent_email,parent_name,parent_phone,phone,metadata,email")
+      .select("*")
       .eq("user_id", lookupId)
       .maybeSingle();
+
+    if (profileError) {
+      console.error("Parent contact lookup by user ID failed:", profileError.message);
+    }
 
     if (!profile) {
       const result = await supabase
         .from("profiles")
-        .select("parent_email,parent_name,parent_phone,phone,metadata,email")
+        .select("*")
         .eq("id", lookupId)
         .maybeSingle();
 
+      if (result.error) {
+        console.error("Parent contact lookup by profile ID failed:", result.error.message);
+      }
       profile = result.data;
     }
 

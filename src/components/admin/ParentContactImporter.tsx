@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Upload, FileDown, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -99,6 +99,9 @@ const ParentContactImporter: React.FC<{ onImported?: () => void }> = ({ onImport
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Import parent contact sheet</DialogTitle>
+          <DialogDescription>
+            Match students and securely update parent email and phone details from a spreadsheet.
+          </DialogDescription>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
