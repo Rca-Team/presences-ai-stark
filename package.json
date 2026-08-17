@@ -78,7 +78,7 @@
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
-    "react-email": "^6.1.4",
+    "react-email": "6.9.2",
     "react-helmet-async": "^3.0.0",
     "react-hook-form": "^7.61.1",
     "react-image-crop": "^11.0.10",
