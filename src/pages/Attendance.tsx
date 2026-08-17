@@ -23,8 +23,48 @@ import { useTheme } from '@/hooks/use-theme';
 /** Lumina NeuralConsole is a dark-mode experience; light mode keeps the classic layout. */
 const ScanShell: React.FC<React.ComponentProps<typeof NeuralConsole>> = ({ children, ...props }) => {
   const { theme } = useTheme();
-  if (theme !== 'dark') return <>{children}</>;
-  return <NeuralConsole {...props}>{children}</NeuralConsole>;
+  if (theme === 'dark') return <NeuralConsole {...props}>{children}</NeuralConsole>;
+
+  return (
+    <div className="space-y-4 lg:grid lg:grid-cols-3 lg:gap-5 lg:space-y-0">
+      <div className="lg:col-span-2 bg-card/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-border/50 shadow-lg overflow-hidden">
+        <div
+          className="p-3 sm:p-4 flex items-center gap-3"
+          style={{ background: 'linear-gradient(135deg, hsl(var(--ios-blue)), hsl(var(--neon-violet)))' }}
+        >
+          <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <Scan className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-white text-sm sm:text-base truncate">{props.title}</h3>
+            <p className="text-xs text-white/70 truncate">{props.subtitle}</p>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white">Live</span>
+          </div>
+        </div>
+        <div className="p-2 sm:p-4">{children}</div>
+        <div className="border-t border-border/50 px-3 py-2 sm:px-4">
+          <span className="text-[11px] text-muted-foreground">
+            Status: <span className="font-semibold text-primary">{props.statusText}</span>
+          </span>
+        </div>
+      </div>
+      <div className="rounded-2xl sm:rounded-3xl border border-border/50 bg-card/80 backdrop-blur-xl shadow-lg overflow-hidden">
+        <div
+          className="p-2.5 sm:p-3 flex items-center gap-2"
+          style={{ background: 'linear-gradient(135deg, hsl(var(--ios-green)), hsl(var(--emerald)))' }}
+        >
+          <Activity className="w-4 h-4 text-white" />
+          <span className="text-sm font-semibold text-white">Live Feed</span>
+        </div>
+        <div className="p-2.5 sm:p-3 max-h-[420px] overflow-auto">
+          <LiveAttendanceFeed />
+        </div>
+      </div>
+    </div>
+  );
 };
 
 
