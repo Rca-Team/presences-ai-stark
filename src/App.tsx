@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Helmet, HelmetProvider } from "react-helmet-async";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import RouteFallback from "@/components/RouteFallback";
+import AppErrorBoundary from "@/components/AppErrorBoundary";
 import { warmCommonRoutes } from "@/lib/preloadRoute";
 
 
@@ -16,7 +17,7 @@ const Attendance = lazyWithRetry(() => import("./pages/Attendance"), "attendance
 const Login = lazyWithRetry(() => import("./pages/Login"), "login");
 const Signup = lazyWithRetry(() => import("./pages/Signup"), "signup");
 const NotFound = lazyWithRetry(() => import("./pages/NotFound"), "not-found");
-import Admin from "./pages/Admin";
+const Admin = lazyWithRetry(() => import("./pages/Admin"), "admin");
 const Contact = lazyWithRetry(() => import('./pages/Contact'), 'contact');
 const NotificationDemo = lazyWithRetry(() => import('./pages/NotificationDemo'), 'notification-demo');
 const Profile = lazyWithRetry(() => import('./pages/Profile'), 'profile');
@@ -414,7 +415,7 @@ function App() {
 
     const failSafeTimer = window.setTimeout(() => {
       setShowSplash(false);
-    }, 4000);
+    }, 2200);
 
     return () => window.clearTimeout(failSafeTimer);
   }, [showSplash]);
@@ -439,14 +440,14 @@ function App() {
               <div className="premium-glass-app">
                 <BrowserRouter>
                   {showSplash ? (
-                    <SplashAnimation onComplete={handleSplashComplete} duration={1100} />
+                    <SplashAnimation onComplete={handleSplashComplete} duration={700} />
                   ) : (
 
                     <NotificationPermissionGate>
                       <MobileAppShell>
                         <SeoHead />
                         <LuminaScope />
-                        <AnimatedRoutes />
+                        <AppErrorBoundary><AnimatedRoutes /></AppErrorBoundary>
                       </MobileAppShell>
                       {mountNonCritical && (
                         <>

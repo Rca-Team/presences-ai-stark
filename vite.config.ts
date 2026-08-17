@@ -84,14 +84,23 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: "dist",
-      sourcemap: true,
+      sourcemap: false,
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ["react", "react-dom", "react-router-dom"],
-            faceapi: ["face-api.js"],
-            firebase: ["firebase/app", "firebase/storage"],
-            supabase: ["@supabase/supabase-js"],
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (/[\\/]react[\\/]|react-dom|react-router|scheduler/.test(id)) return "vendor";
+            if (id.includes("face-api.js")) return "faceapi";
+            if (id.includes("onnxruntime")) return "onnx";
+            if (id.includes("@mediapipe")) return "mediapipe";
+            if (id.includes("firebase")) return "firebase";
+            if (id.includes("@supabase")) return "supabase";
+            if (id.includes("framer-motion") || id.includes("popmotion")) return "motion";
+            if (id.includes("recharts") || id.includes("d3-")) return "charts";
+            if (id.includes("jspdf") || id.includes("xlsx") || id.includes("html2canvas")) return "docs";
+            if (id.includes("@radix-ui")) return "ui";
+            return "deps";
           },
         },
       },
