@@ -402,11 +402,15 @@ function App() {
       void import('./components/gate/GateModeScanner').catch(() => undefined);
       void import('./components/attendance/FuturisticFaceScanner').catch(() => undefined);
 
-      if (!areGateDetectionModelsLoaded()) {
-        void loadGateDetectionModels().catch((err) => {
+      void import('@/services/face-recognition/ModelService')
+        .then(({ areGateDetectionModelsLoaded, loadGateDetectionModels }) => {
+          if (areGateDetectionModelsLoaded()) return;
+          return loadGateDetectionModels();
+        })
+        .catch((err) => {
           console.warn('Gate model preload failed, will retry on Gate Mode open', err);
         });
-      }
+
     }, 500);
 
     return () => window.clearTimeout(prefetchTimer);
