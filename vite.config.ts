@@ -88,20 +88,20 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1200,
       rollupOptions: {
         output: {
+          // Only bucket the libraries that are genuinely shared across many
+          // routes. Everything else is left to Rollup so that heavy, lazily
+          // imported deps (onnx, jspdf, xlsx, mediapipe, charts) stay inside
+          // the route chunk that actually needs them instead of being pulled
+          // into the entry graph through a catch-all "deps" bucket.
           manualChunks(id) {
             if (!id.includes("node_modules")) return undefined;
             if (/[\\/]react[\\/]|react-dom|react-router|scheduler/.test(id)) return "vendor";
-            if (id.includes("face-api.js")) return "faceapi";
-            if (id.includes("onnxruntime")) return "onnx";
-            if (id.includes("@mediapipe")) return "mediapipe";
-            if (id.includes("firebase")) return "firebase";
             if (id.includes("@supabase")) return "supabase";
             if (id.includes("framer-motion") || id.includes("popmotion")) return "motion";
-            if (id.includes("recharts") || id.includes("d3-")) return "charts";
-            if (id.includes("jspdf") || id.includes("xlsx") || id.includes("html2canvas")) return "docs";
             if (id.includes("@radix-ui")) return "ui";
-            return "deps";
+            return undefined;
           },
+
         },
       },
     },
