@@ -44,7 +44,9 @@ import EmergencyAlertListener from './components/EmergencyAlertListener';
 import RealtimeNotificationListener from './components/RealtimeNotificationListener';
 import AppExperienceLayer from './components/AppExperienceLayer';
 import SplashAnimation from './components/SplashAnimation';
-import { areGateDetectionModelsLoaded, loadGateDetectionModels } from '@/services/face-recognition/ModelService';
+// NOTE: ModelService is imported dynamically inside the prefetch effect below.
+// A static import would pull face-api.js + tfjs into the entry chunk.
+
 import NotificationPermissionGate from './components/NotificationPermissionGate';
 import LuminaScope from './components/LuminaScope';
 
@@ -400,11 +402,15 @@ function App() {
       void import('./components/gate/GateModeScanner').catch(() => undefined);
       void import('./components/attendance/FuturisticFaceScanner').catch(() => undefined);
 
-      if (!areGateDetectionModelsLoaded()) {
-        void loadGateDetectionModels().catch((err) => {
+      void import('@/services/face-recognition/ModelService')
+        .then(({ areGateDetectionModelsLoaded, loadGateDetectionModels }) => {
+          if (areGateDetectionModelsLoaded()) return;
+          return loadGateDetectionModels();
+        })
+        .catch((err) => {
           console.warn('Gate model preload failed, will retry on Gate Mode open', err);
         });
-      }
+
     }, 500);
 
     return () => window.clearTimeout(prefetchTimer);

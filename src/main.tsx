@@ -2,7 +2,6 @@ import { createRoot } from 'react-dom/client'
 import { StrictMode } from 'react'
 import App from './App.tsx'
 import './index.css'
-import { loadModels, areModelsLoaded } from './services/FaceRecognitionService'
 import { toast } from 'sonner'
 
 // Clean up only stale app-shell SWs from legacy builds.
@@ -138,6 +137,10 @@ sanitizeSupabaseAuthStorage();
 // Improved model loading with retry mechanism
 const loadFaceModels = async (retries = 2, delay = 1500) => {
   let attempt = 0;
+
+  // Dynamic import: keeps face-api.js + tfjs (~850kB) out of the entry chunk
+  // so the first paint isn't blocked by parsing the model runtime.
+  const { loadModels, areModelsLoaded } = await import('./services/FaceRecognitionService');
   
   while (attempt <= retries) {
     try {
