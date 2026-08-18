@@ -44,7 +44,9 @@ import EmergencyAlertListener from './components/EmergencyAlertListener';
 import RealtimeNotificationListener from './components/RealtimeNotificationListener';
 import AppExperienceLayer from './components/AppExperienceLayer';
 import SplashAnimation from './components/SplashAnimation';
-import { areGateDetectionModelsLoaded, loadGateDetectionModels } from '@/services/face-recognition/ModelService';
+// NOTE: ModelService is imported dynamically inside the prefetch effect below.
+// A static import would pull face-api.js + tfjs into the entry chunk.
+
 import NotificationPermissionGate from './components/NotificationPermissionGate';
 import LuminaScope from './components/LuminaScope';
 
