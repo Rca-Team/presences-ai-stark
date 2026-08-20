@@ -236,6 +236,26 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     initModels();
   }, []);
 
+  // Gallery health check — if no face descriptors exist, recognition can never
+  // succeed, so tell the operator instead of silently showing "Face 1".
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { count, error } = await supabase
+          .from('face_descriptors')
+          .select('id', { count: 'exact', head: true });
+        if (!cancelled) setGalleryCount(error ? null : Number(count ?? 0));
+      } catch {
+        if (!cancelled) setGalleryCount(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+
   // Real-time face detection — engine driven:
   //  • preview stays at full camera fps, detection runs at 9 fps
   //  • inference on a 640px downscaled frame, boxes mapped back to full res
