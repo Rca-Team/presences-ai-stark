@@ -1961,11 +1961,22 @@ const StudentFaceSamplesManager: React.FC = () => {
           )}
           {loading ? (
             <div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 w-full" />)}</div>
+          ) : groups.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              <UserX className="w-10 h-10 mx-auto mb-2 opacity-50" />
+              <p className="font-medium text-foreground">No students found in this workspace</p>
+              <p className="mt-1">
+                This project's database has no registered students or face samples yet. Register students
+                on the Register page, or restore a previous export from Admin → Data Backup / the
+                “Import students ZIP” button above.
+              </p>
+            </div>
           ) : !selectedGroup ? (
             <div className="text-center py-10 text-muted-foreground">
               <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-50" />
               Select a student to view all model training and recognition images.
             </div>
+
           ) : selectedSamples.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
               <ImageIcon className="w-10 h-10 mx-auto mb-2 opacity-50" />

@@ -125,6 +125,8 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
 
   
   const [modelsLoaded, setModelsLoaded] = useState(areModelsLoaded());
+  const [galleryCount, setGalleryCount] = useState<number | null>(null);
+
   const [isScanning, setIsScanning] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [scanPhase, setScanPhase] = useState<'idle' | 'detecting' | 'analyzing' | 'matching' | 'complete'>('idle');
@@ -233,6 +235,26 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
     };
     initModels();
   }, []);
+
+  // Gallery health check — if no face descriptors exist, recognition can never
+  // succeed, so tell the operator instead of silently showing "Face 1".
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { count, error } = await supabase
+          .from('face_descriptors')
+          .select('id', { count: 'exact', head: true });
+        if (!cancelled) setGalleryCount(error ? null : Number(count ?? 0));
+      } catch {
+        if (!cancelled) setGalleryCount(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
 
   // Real-time face detection — engine driven:
   //  • preview stays at full camera fps, detection runs at 9 fps
@@ -1078,6 +1100,17 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
 
   return (
     <div className="relative w-full">
+      {galleryCount === 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-foreground">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>
+            No registered faces in this workspace yet, so every face will show as unrecognized and no
+            attendance can be marked. Register students first (Register page) or restore a backup, then
+            reopen this scanner.
+          </span>
+        </div>
+      )}
+
       {/* Face Count Badge */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
