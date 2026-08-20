@@ -125,6 +125,8 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
 
   
   const [modelsLoaded, setModelsLoaded] = useState(areModelsLoaded());
+  const [galleryCount, setGalleryCount] = useState<number | null>(null);
+
   const [isScanning, setIsScanning] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [scanPhase, setScanPhase] = useState<'idle' | 'detecting' | 'analyzing' | 'matching' | 'complete'>('idle');
