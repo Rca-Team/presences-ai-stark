@@ -1100,6 +1100,17 @@ const FuturisticFaceScanner: React.FC<FuturisticFaceScannerProps> = ({ onScanCom
 
   return (
     <div className="relative w-full">
+      {galleryCount === 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-foreground">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <span>
+            No registered faces in this workspace yet, so every face will show as unrecognized and no
+            attendance can be marked. Register students first (Register page) or restore a backup, then
+            reopen this scanner.
+          </span>
+        </div>
+      )}
+
       {/* Face Count Badge */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
