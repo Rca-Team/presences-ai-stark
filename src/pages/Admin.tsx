@@ -501,8 +501,10 @@ const Admin = () => {
                 </div>
                 {!sidebarCollapsed &&
               <div className="flex gap-1">
-                    <AttendanceExport />
-                    <BulkNotificationService availableFaces={availableFaces} />
+                    <Suspense fallback={<div className="h-8 flex-1 rounded-md bg-muted/40" />}>
+                      <AttendanceExport />
+                      <BulkNotificationService availableFaces={availableFaces} />
+                    </Suspense>
                   </div>
               }
               </div>
