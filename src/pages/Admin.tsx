@@ -595,7 +595,11 @@ const Admin = () => {
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                     style={{ willChange: 'opacity, transform' }}>
 
-                    {isDataLoading ? <AdminContentSkeleton /> : renderContent()}
+                    {isDataLoading ? (
+                      <AdminContentSkeleton />
+                    ) : (
+                      <Suspense fallback={<AdminContentSkeleton />}>{renderContent()}</Suspense>
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </div>
