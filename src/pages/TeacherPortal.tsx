@@ -347,28 +347,30 @@ const TeacherPortal: React.FC = () => {
                       </Button>
                     </div>
 
-                    {captureMethod === 'face' && (
-                      <AttendanceCapture
-                        classScope={{
-                          className: activeClass.class,
-                          section: activeClass.section,
-                        }}
-                      />
-                    )}
-                    {captureMethod === 'qr' && (
-                      <QRCodeScanner
-                        autoStart
-                        onScanComplete={() => loadTodayAttendance(activeClass)}
-                      />
-                    )}
-                    {captureMethod === 'gate' && (
-                      <GateModeScanner
-                        isActive={true}
-                        onFaceDetected={() => loadTodayAttendance(activeClass)}
-                        className={activeClass.class}
-                        section={activeClass.section}
-                      />
-                    )}
+                    <Suspense fallback={<div className="h-[360px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                      {captureMethod === 'face' && (
+                        <AttendanceCapture
+                          classScope={{
+                            className: activeClass.class,
+                            section: activeClass.section,
+                          }}
+                        />
+                      )}
+                      {captureMethod === 'qr' && (
+                        <QRCodeScanner
+                          autoStart
+                          onScanComplete={() => loadTodayAttendance(activeClass)}
+                        />
+                      )}
+                      {captureMethod === 'gate' && (
+                        <GateModeScanner
+                          isActive={true}
+                          onFaceDetected={() => loadTodayAttendance(activeClass)}
+                          className={activeClass.class}
+                          section={activeClass.section}
+                        />
+                      )}
+                    </Suspense>
                   </CardContent>
                 </Card>
               </TabsContent>
