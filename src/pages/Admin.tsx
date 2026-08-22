@@ -253,7 +253,9 @@ const Admin = () => {
     return (
       <PageTransition>
         <PageLayout className="min-h-screen bg-background">
-          <TeacherDashboard />
+          <Suspense fallback={<div className="p-6"><AdminContentSkeleton /></div>}>
+            <TeacherDashboard />
+          </Suspense>
         </PageLayout>
       </PageTransition>);
 
