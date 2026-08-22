@@ -412,7 +412,13 @@ const Admin = () => {
     }
   };
 
-  if (liteMode) return <LiteAdmin stats={stats} />;
+  if (liteMode) {
+    return (
+      <Suspense fallback={<div className="p-6"><AdminContentSkeleton /></div>}>
+        <LiteAdmin stats={stats} />
+      </Suspense>
+    );
+  }
 
   return (
     <PageTransition>
