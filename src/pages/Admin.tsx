@@ -1,39 +1,48 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { motion, AnimatePresence } from 'framer-motion';
 import PageLayout from '@/components/layouts/PageLayout';
 import PageTransition from '@/components/PageTransition';
-import AdminFacesList from '@/components/admin/AdminFacesList';
-import AttendanceCalendar from '@/components/admin/AttendanceCalendar';
-import AttendanceCutoffSetting from '@/components/admin/AttendanceCutoffSetting';
-import FaceModelUpgradeSettings from '@/components/admin/FaceModelUpgradeSettings';
-import AutoNotificationScheduler from '@/components/admin/AutoNotificationScheduler';
-import PilotModeSettings from '@/components/admin/PilotModeSettings';
-import NotificationSettings from '@/components/admin/NotificationSettings';
-import BulkNotificationService from '@/components/admin/BulkNotificationService';
-import CategoryBasedView from '@/components/admin/CategoryBasedView';
-import PrincipalDashboard from '@/components/admin/PrincipalDashboard';
-import TeacherDashboard from '@/components/admin/TeacherDashboard';
-import AttendanceExport from '@/components/admin/AttendanceExport';
-import AdminNotificationSender from '@/components/admin/AdminNotificationSender';
-import UserAccessManager from '@/components/admin/UserAccessManager';
-import BatchIDCardExtractor from '@/components/admin/BatchIDCardExtractor';
-import StudentIDCardGenerator from '@/components/admin/StudentIDCardGenerator';
-import StudentDetailsTable from '@/components/admin/StudentDetailsTable';
-import AttendanceReportGenerator from '@/components/admin/AttendanceReportGenerator';
-import ClassSectionReport from '@/components/admin/ClassSectionReport';
-import SubstitutionReport from '@/components/admin/SubstitutionReport';
-import EmergencyAlertPanel from '@/components/admin/EmergencyAlertPanel';
-import NotificationLog from '@/components/admin/NotificationLog';
-import AdminInbox from '@/components/admin/AdminInbox';
-import AdminTutorial from '@/components/admin/AdminTutorial';
-import StudentFaceSamplesManager from '@/components/admin/StudentFaceSamplesManager';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 
-import FaceSamplesDiagnosticsPanel from '@/components/admin/FaceSamplesDiagnosticsPanel';
-import LiteAdmin from '@/components/lite/LiteAdmin';
+// Every admin section is a separate chunk. Previously all ~30 panels were
+// statically imported, which pulled jspdf, xlsx, html2canvas, recharts and the
+// face pipeline into a single ~960 kB Admin chunk that had to parse before the
+// first paint. Now only the active section downloads.
+const AdminFacesList = lazyWithRetry(() => import('@/components/admin/AdminFacesList'), 'admin-faces');
+const AttendanceCalendar = lazyWithRetry(() => import('@/components/admin/AttendanceCalendar'), 'admin-calendar');
+const AttendanceCutoffSetting = lazyWithRetry(() => import('@/components/admin/AttendanceCutoffSetting'), 'admin-cutoff');
+const FaceModelUpgradeSettings = lazyWithRetry(() => import('@/components/admin/FaceModelUpgradeSettings'), 'admin-model-settings');
+const AutoNotificationScheduler = lazyWithRetry(() => import('@/components/admin/AutoNotificationScheduler'), 'admin-notif-scheduler');
+const PilotModeSettings = lazyWithRetry(() => import('@/components/admin/PilotModeSettings'), 'admin-pilot');
+const NotificationSettings = lazyWithRetry(() => import('@/components/admin/NotificationSettings'), 'admin-notif-settings');
+const CategoryBasedView = lazyWithRetry(() => import('@/components/admin/CategoryBasedView'), 'admin-sections');
+const PrincipalDashboard = lazyWithRetry(() => import('@/components/admin/PrincipalDashboard'), 'admin-dashboard');
+const TeacherDashboard = lazyWithRetry(() => import('@/components/admin/TeacherDashboard'), 'admin-teacher-dashboard');
+const AdminNotificationSender = lazyWithRetry(() => import('@/components/admin/AdminNotificationSender'), 'admin-notif-sender');
+const UserAccessManager = lazyWithRetry(() => import('@/components/admin/UserAccessManager'), 'admin-access');
+const BatchIDCardExtractor = lazyWithRetry(() => import('@/components/admin/BatchIDCardExtractor'), 'admin-id-extract');
+const StudentDetailsTable = lazyWithRetry(() => import('@/components/admin/StudentDetailsTable'), 'admin-id-cards');
+const AttendanceReportGenerator = lazyWithRetry(() => import('@/components/admin/AttendanceReportGenerator'), 'admin-report-gen');
+const ClassSectionReport = lazyWithRetry(() => import('@/components/admin/ClassSectionReport'), 'admin-class-report');
+const SubstitutionReport = lazyWithRetry(() => import('@/components/admin/SubstitutionReport'), 'admin-subs-report');
+const EmergencyAlertPanel = lazyWithRetry(() => import('@/components/admin/EmergencyAlertPanel'), 'admin-emergency');
+const NotificationLog = lazyWithRetry(() => import('@/components/admin/NotificationLog'), 'admin-notif-log');
+const AdminInbox = lazyWithRetry(() => import('@/components/admin/AdminInbox'), 'admin-inbox');
+const StudentFaceSamplesManager = lazyWithRetry(() => import('@/components/admin/StudentFaceSamplesManager'), 'admin-samples');
+const FaceSamplesDiagnosticsPanel = lazyWithRetry(() => import('@/components/admin/FaceSamplesDiagnosticsPanel'), 'admin-samples-diag');
+const TimetableManager = lazyWithRetry(() => import('@/components/admin/TimetableManager'), 'admin-timetable');
+const DataBackup = lazyWithRetry(() => import('@/pages/DataBackup'), 'admin-backup');
+const LiteAdmin = lazyWithRetry(() => import('@/components/lite/LiteAdmin'), 'admin-lite');
+
+// Sidebar utilities — small, but they drag in xlsx/notification helpers, so keep
+// them out of the critical path too.
+const AttendanceExport = lazyWithRetry(() => import('@/components/admin/AttendanceExport'), 'admin-export');
+const BulkNotificationService = lazyWithRetry(() => import('@/components/admin/BulkNotificationService'), 'admin-bulk-notif');
+const AdminTutorial = lazyWithRetry(() => import('@/components/admin/AdminTutorial'), 'admin-tutorial');
+
 import { usePerformanceMode } from '@/hooks/usePerformanceMode';
-import DataBackup from '@/pages/DataBackup';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -48,7 +57,6 @@ import {
   Shield, Activity, TrendingUp, ChevronRight, Send, UserCog,
   CreditCard, Image, Download, RefreshCw, MessageSquareText, Mail, Siren, CalendarDays, DatabaseBackup, ScanLine } from
 'lucide-react';
-import TimetableManager from '@/components/admin/TimetableManager';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -245,7 +253,9 @@ const Admin = () => {
     return (
       <PageTransition>
         <PageLayout className="min-h-screen bg-background">
-          <TeacherDashboard />
+          <Suspense fallback={<div className="p-6"><AdminContentSkeleton /></div>}>
+            <TeacherDashboard />
+          </Suspense>
         </PageLayout>
       </PageTransition>);
 
@@ -402,7 +412,13 @@ const Admin = () => {
     }
   };
 
-  if (liteMode) return <LiteAdmin stats={stats} />;
+  if (liteMode) {
+    return (
+      <Suspense fallback={<div className="p-6"><AdminContentSkeleton /></div>}>
+        <LiteAdmin stats={stats} />
+      </Suspense>
+    );
+  }
 
   return (
     <PageTransition>
@@ -491,8 +507,10 @@ const Admin = () => {
                 </div>
                 {!sidebarCollapsed &&
               <div className="flex gap-1">
-                    <AttendanceExport />
-                    <BulkNotificationService availableFaces={availableFaces} />
+                    <Suspense fallback={<div className="h-8 flex-1 rounded-md bg-muted/40" />}>
+                      <AttendanceExport />
+                      <BulkNotificationService availableFaces={availableFaces} />
+                    </Suspense>
                   </div>
               }
               </div>
@@ -516,7 +534,9 @@ const Admin = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                <AdminTutorial onNavigate={handleTabChange} />
+                <Suspense fallback={null}>
+                  <AdminTutorial onNavigate={handleTabChange} />
+                </Suspense>
                 <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={handleRefresh}>
                   <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </Button>
@@ -587,7 +607,11 @@ const Admin = () => {
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                     style={{ willChange: 'opacity, transform' }}>
 
-                    {isDataLoading ? <AdminContentSkeleton /> : renderContent()}
+                    {isDataLoading ? (
+                      <AdminContentSkeleton />
+                    ) : (
+                      <Suspense fallback={<AdminContentSkeleton />}>{renderContent()}</Suspense>
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </div>

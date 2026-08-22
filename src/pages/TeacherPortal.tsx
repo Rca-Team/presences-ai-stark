@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,11 +9,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useToast } from '@/hooks/use-toast';
 import PageLayout from '@/components/layouts/PageLayout';
-import AttendanceCapture from '@/components/attendance/AttendanceCapture';
-import GateModeScanner from '@/components/gate/GateModeScanner';
-import QRCodeScanner from '@/components/attendance/QRCodeScanner';
-import ClassSectionReport from '@/components/admin/ClassSectionReport';
-import TimetableManager from '@/components/admin/TimetableManager';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+
+// Heavy, tab-gated features (camera pipeline, QR decoder, jspdf/xlsx report
+// tooling) are split out so opening the portal doesn't parse ~900 kB up front.
+const AttendanceCapture = lazyWithRetry(() => import('@/components/attendance/AttendanceCapture'), 'tp-face');
+const GateModeScanner = lazyWithRetry(() => import('@/components/gate/GateModeScanner'), 'tp-gate');
+const QRCodeScanner = lazyWithRetry(() => import('@/components/attendance/QRCodeScanner'), 'tp-qr');
+const ClassSectionReport = lazyWithRetry(() => import('@/components/admin/ClassSectionReport'), 'tp-report');
+const TimetableManager = lazyWithRetry(() => import('@/components/admin/TimetableManager'), 'tp-timetable');
 import { fetchTeacherCategories, parseClassSection } from '@/utils/teacherAccess';
 
 interface ClassAssignment { class: string; section: string; teacher_name?: string | null; }
@@ -343,28 +347,30 @@ const TeacherPortal: React.FC = () => {
                       </Button>
                     </div>
 
-                    {captureMethod === 'face' && (
-                      <AttendanceCapture
-                        classScope={{
-                          className: activeClass.class,
-                          section: activeClass.section,
-                        }}
-                      />
-                    )}
-                    {captureMethod === 'qr' && (
-                      <QRCodeScanner
-                        autoStart
-                        onScanComplete={() => loadTodayAttendance(activeClass)}
-                      />
-                    )}
-                    {captureMethod === 'gate' && (
-                      <GateModeScanner
-                        isActive={true}
-                        onFaceDetected={() => loadTodayAttendance(activeClass)}
-                        className={activeClass.class}
-                        section={activeClass.section}
-                      />
-                    )}
+                    <Suspense fallback={<div className="h-[360px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                      {captureMethod === 'face' && (
+                        <AttendanceCapture
+                          classScope={{
+                            className: activeClass.class,
+                            section: activeClass.section,
+                          }}
+                        />
+                      )}
+                      {captureMethod === 'qr' && (
+                        <QRCodeScanner
+                          autoStart
+                          onScanComplete={() => loadTodayAttendance(activeClass)}
+                        />
+                      )}
+                      {captureMethod === 'gate' && (
+                        <GateModeScanner
+                          isActive={true}
+                          onFaceDetected={() => loadTodayAttendance(activeClass)}
+                          className={activeClass.class}
+                          section={activeClass.section}
+                        />
+                      )}
+                    </Suspense>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -444,7 +450,9 @@ const TeacherPortal: React.FC = () => {
               {/* Edit timetable — scoped to teacher's assigned classes */}
               <TabsContent value="editPlan" className="mt-4">
                 {allowedCategories.length > 0 ? (
-                  <TimetableManager allowedCategories={allowedCategories} />
+                  <Suspense fallback={<div className="h-[320px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                    <TimetableManager allowedCategories={allowedCategories} />
+                  </Suspense>
                 ) : (
                   <Card><CardHeader><CardTitle>No class assigned</CardTitle><CardDescription>Ask the admin to assign you a class before editing the timetable.</CardDescription></CardHeader></Card>
                 )}
@@ -453,7 +461,9 @@ const TeacherPortal: React.FC = () => {
               {/* Class report — PDF/CSV export */}
               <TabsContent value="report" className="mt-4">
                 {allowedCategories.length > 0 ? (
-                  <ClassSectionReport allowedCategories={allowedCategories} />
+                  <Suspense fallback={<div className="h-[320px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                    <ClassSectionReport allowedCategories={allowedCategories} />
+                  </Suspense>
                 ) : (
                   <Card><CardHeader><CardTitle>No class assigned</CardTitle><CardDescription>Ask the admin to assign you a class before exporting reports.</CardDescription></CardHeader></Card>
                 )}
