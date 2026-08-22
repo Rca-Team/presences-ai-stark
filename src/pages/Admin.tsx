@@ -534,7 +534,9 @@ const Admin = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                <AdminTutorial onNavigate={handleTabChange} />
+                <Suspense fallback={null}>
+                  <AdminTutorial onNavigate={handleTabChange} />
+                </Suspense>
                 <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={handleRefresh}>
                   <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </Button>
