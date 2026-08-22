@@ -450,7 +450,9 @@ const TeacherPortal: React.FC = () => {
               {/* Edit timetable — scoped to teacher's assigned classes */}
               <TabsContent value="editPlan" className="mt-4">
                 {allowedCategories.length > 0 ? (
-                  <TimetableManager allowedCategories={allowedCategories} />
+                  <Suspense fallback={<div className="h-[320px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                    <TimetableManager allowedCategories={allowedCategories} />
+                  </Suspense>
                 ) : (
                   <Card><CardHeader><CardTitle>No class assigned</CardTitle><CardDescription>Ask the admin to assign you a class before editing the timetable.</CardDescription></CardHeader></Card>
                 )}
@@ -459,7 +461,9 @@ const TeacherPortal: React.FC = () => {
               {/* Class report — PDF/CSV export */}
               <TabsContent value="report" className="mt-4">
                 {allowedCategories.length > 0 ? (
-                  <ClassSectionReport allowedCategories={allowedCategories} />
+                  <Suspense fallback={<div className="h-[320px] rounded-2xl bg-muted/40 animate-pulse" />}>
+                    <ClassSectionReport allowedCategories={allowedCategories} />
+                  </Suspense>
                 ) : (
                   <Card><CardHeader><CardTitle>No class assigned</CardTitle><CardDescription>Ask the admin to assign you a class before exporting reports.</CardDescription></CardHeader></Card>
                 )}
