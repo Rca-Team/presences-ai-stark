@@ -9,11 +9,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useToast } from '@/hooks/use-toast';
 import PageLayout from '@/components/layouts/PageLayout';
-import AttendanceCapture from '@/components/attendance/AttendanceCapture';
-import GateModeScanner from '@/components/gate/GateModeScanner';
-import QRCodeScanner from '@/components/attendance/QRCodeScanner';
-import ClassSectionReport from '@/components/admin/ClassSectionReport';
-import TimetableManager from '@/components/admin/TimetableManager';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+
+// Heavy, tab-gated features (camera pipeline, QR decoder, jspdf/xlsx report
+// tooling) are split out so opening the portal doesn't parse ~900 kB up front.
+const AttendanceCapture = lazyWithRetry(() => import('@/components/attendance/AttendanceCapture'), 'tp-face');
+const GateModeScanner = lazyWithRetry(() => import('@/components/gate/GateModeScanner'), 'tp-gate');
+const QRCodeScanner = lazyWithRetry(() => import('@/components/attendance/QRCodeScanner'), 'tp-qr');
+const ClassSectionReport = lazyWithRetry(() => import('@/components/admin/ClassSectionReport'), 'tp-report');
+const TimetableManager = lazyWithRetry(() => import('@/components/admin/TimetableManager'), 'tp-timetable');
 import { fetchTeacherCategories, parseClassSection } from '@/utils/teacherAccess';
 
 interface ClassAssignment { class: string; section: string; teacher_name?: string | null; }
