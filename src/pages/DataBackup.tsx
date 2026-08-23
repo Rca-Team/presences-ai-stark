@@ -22,6 +22,10 @@ import {
   deleteSnapshot, getSnapshot, listSnapshots, saveSnapshot, trimSnapshots,
   type SnapshotMeta, type StoredSnapshot,
 } from '@/lib/backup/indexeddb';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+
+const ZipImportPanel = lazyWithRetry(() => import('@/components/admin/ZipImportPanel'));
+
 
 // ---------- Types ----------
 type Manifest = {
