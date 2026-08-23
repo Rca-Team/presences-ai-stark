@@ -22,6 +22,10 @@ import {
   deleteSnapshot, getSnapshot, listSnapshots, saveSnapshot, trimSnapshots,
   type SnapshotMeta, type StoredSnapshot,
 } from '@/lib/backup/indexeddb';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+
+const ZipImportPanel = lazyWithRetry(() => import('@/components/admin/ZipImportPanel'), 'zip-import-panel');
+
 
 // ---------- Types ----------
 type Manifest = {
@@ -717,11 +721,22 @@ const DataBackup = ({ embedded = false }: { embedded?: boolean }) => {
       )}
 
       <Tabs defaultValue="backup" className="w-full">
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
           <TabsTrigger value="backup">Backup</TabsTrigger>
           <TabsTrigger value="restore">Restore</TabsTrigger>
+          <TabsTrigger value="zip">Import ZIP</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
+
+        {/* ZIP IMPORT */}
+        <TabsContent value="zip" className="mt-4">
+          <React.Suspense
+            fallback={<div className="h-64 animate-pulse rounded-xl border bg-muted/30" />}
+          >
+            <ZipImportPanel />
+          </React.Suspense>
+        </TabsContent>
+
 
         {/* BACKUP */}
         <TabsContent value="backup" className="space-y-4 mt-4">
