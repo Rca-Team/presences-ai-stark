@@ -24,7 +24,7 @@ import {
 } from '@/lib/backup/indexeddb';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 
-const ZipImportPanel = lazyWithRetry(() => import('@/components/admin/ZipImportPanel'));
+const ZipImportPanel = lazyWithRetry(() => import('@/components/admin/ZipImportPanel'), 'zip-import-panel');
 
 
 // ---------- Types ----------
