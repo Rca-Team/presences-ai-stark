@@ -115,6 +115,7 @@ export type Database = {
           device_info: Json | null
           id: string
           image_url: string | null
+          kiosk_device_id: string | null
           location: string | null
           metadata: Json | null
           method: string | null
@@ -137,6 +138,7 @@ export type Database = {
           device_info?: Json | null
           id?: string
           image_url?: string | null
+          kiosk_device_id?: string | null
           location?: string | null
           metadata?: Json | null
           method?: string | null
@@ -159,6 +161,7 @@ export type Database = {
           device_info?: Json | null
           id?: string
           image_url?: string | null
+          kiosk_device_id?: string | null
           location?: string | null
           metadata?: Json | null
           method?: string | null
@@ -851,6 +854,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      kiosk_devices: {
+        Row: {
+          agent_version: string | null
+          category: string | null
+          class: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          last_ip: string | null
+          last_seen_at: string | null
+          location: string | null
+          metadata: Json
+          name: string
+          section: string | null
+          token_hash: string
+          token_prefix: string | null
+          updated_at: string
+        }
+        Insert: {
+          agent_version?: string | null
+          category?: string | null
+          class?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          last_ip?: string | null
+          last_seen_at?: string | null
+          location?: string | null
+          metadata?: Json
+          name: string
+          section?: string | null
+          token_hash: string
+          token_prefix?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agent_version?: string | null
+          category?: string | null
+          class?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          last_ip?: string | null
+          last_seen_at?: string | null
+          location?: string | null
+          metadata?: Json
+          name?: string
+          section?: string | null
+          token_hash?: string
+          token_prefix?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       late_entries: {
         Row: {
